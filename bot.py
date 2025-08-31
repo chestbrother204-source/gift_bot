@@ -2,15 +2,16 @@ from keep_alive import keep_alive
 import logging
 import json
 import os
-from datetime import datetime, timedelta
+import time
+from datetime import datetime, timedelta, time as dt_time
 from random import uniform, choice
+from zoneinfo import ZoneInfo
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, BotCommand, BotCommandScopeChat
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
 from telegram.constants import ParseMode, ChatAction
 from telegram.error import BadRequest, Forbidden
 import asyncio
 from typing import Dict, Any
-import time
 
 # --- CONFIGURATION ---
 BOT_TOKEN = "8310636090:AAFcFbpeCH-fqm0pNzAi7Ng1hWDw7wF72Xs"  # Replace with your bot token
@@ -29,11 +30,38 @@ EMOJIS = {
     'money': '💰', 'gift': '🎁', 'rocket': '🚀', 'star': '⭐', 'fire': '🔥',
     'diamond': '💎', 'crown': '👑', 'trophy': '🏆', 'party': '🎉', 'cash': '💵',
     'bank': '🏦', 'coin': '🪙', 'gem': '💠', 'magic': '✨', 'lightning': '⚡',
-    'clock': '⏰', 'success': '✅', 'error': '❌'
+    'clock': '⏰', 'success': '✅', 'error': '❌', 'notify': '🔔'
 }
 
-TYPING_DELAY = 0.5   # Seconds to show typing indicator
-LOADING_DURATION = 1.5 # How long the loading animation should run before resolving
+TYPING_DELAY = 0.5    # Seconds to show typing indicator
+LOADING_DURATION = 1.8 # How long the loading animation should run before resolving
+
+# Titles for the new stylish loading animation
+LOADING_TITLES = {
+    'start': '✦ ACCOUNT SETUP ✦',
+    'claim': '✦ DAILY GIFT SCANNER ✦',
+    'wallet': '✦ VAULT ACCESS ✦',
+    'withdraw': '✦ WITHDRAWAL PROCESSOR ✦',
+    'stats': '✦ STATS ANALYZER ✦',
+    'upi': '✦ UPI VALIDATOR ✦',
+    'refer': '✦ LINK GENERATOR ✦',
+    'help': '✦ GUIDE COMPILER ✦',
+    'tasks': '✦ TASK FETCHER ✦',
+    'verify': '✦ MEMBERSHIP VERIFIER ✦',
+    'admin': '✦ ADMIN DASHBOARD ✦',
+    'admin_stats': '✦ STATS COMPILER ✦',
+    'admin_tools': '✦ SYSTEM TOOLS ✦',
+    'admin_users': '✦ USER DATABASE ✦',
+    'admin_withdrawals': '✦ PAYMENT LEDGER ✦',
+    'admin_broadcast': '✦ BROADCAST PREPARATION ✦',
+    'admin_task_create': '✦ TASK VERIFICATION ✦',
+    'admin_task_clean': '✦ DATABASE CLEANUP ✦',
+    'admin_task_remove': '✦ TASK DATABASE ✦',
+    'admin_backup': '✦ SECURE BACKUP ✦',
+    'admin_export': '✦ DATA EXPORT ✦',
+    'admin_health': '✦ SYSTEM DIAGNOSTICS ✦'
+}
+
 
 # --- MOTIVATIONAL QUOTES ---
 QUOTES = [
@@ -61,7 +89,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
     handlers=[
-        logging.FileHandler('bot.log'),
+        logging.FileHandler('bot.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -81,35 +109,86 @@ async def show_typing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.debug(f"Typing indicator error: {e}")
 
-async def show_loading_animation(update: Update, context: ContextTypes.DEFAULT_TYPE, message: str = "Processing"):
-    """Shows a cool, attractive loading animation with emojis."""
+async def show_stylish_loading_animation(update: Update, context: ContextTypes.DEFAULT_TYPE, title: str = "✦ PROCESSING ✦"):
+    """Shows a stylish loading animation with a progress bar and more emojis."""
     try:
         chat_id = update.effective_chat.id
-        loading_frames = ['🕛', '🕐', '🕑', '🕒', '🕓', '🕔', '🕕', '🕖', '🕗', '🕘', '🕙', '🕚']
         
-        sent_message = await context.bot.send_message(chat_id, f"{loading_frames[0]} {message}...")
+        initial_text = f"╭─✨ P L E A S E  W A I T ✨─╮\n│\n  {title}\n│\n  ⏳ Loading...\n│  [░░░░░░░░░░] 0%\n│\n╰─✨──────────────────✨─╯"
+        sent_message = await context.bot.send_message(chat_id, initial_text)
         
         start_time = time.time()
-        frame_index = 0
+        last_text = initial_text
+        
         while time.time() - start_time < LOADING_DURATION:
-            try:
-                frame = loading_frames[frame_index % len(loading_frames)]
-                await context.bot.edit_message_text(
-                    f"{frame} {message}...",
-                    chat_id=chat_id,
-                    message_id=sent_message.message_id
-                )
-                frame_index += 1
-            except BadRequest as e:
-                if 'message is not modified' not in str(e).lower():
-                    logger.warning(f"Error editing loading animation: {e}")
-                pass
-            await asyncio.sleep(0.12)
+            progress_fraction = (time.time() - start_time) / LOADING_DURATION
+            progress_percent = min(100, int(progress_fraction * 100))
+            
+            filled_blocks = int(progress_fraction * 10)
+            empty_blocks = 10 - filled_blocks
+            progress_bar = '▓' * filled_blocks + '░' * empty_blocks
+            
+            # Dynamic emoji and status message
+            if progress_percent < 33:
+                progress_emoji = "⏳"
+                status_message = "Initializing..."
+            elif progress_percent < 66:
+                progress_emoji = "⚙️"
+                status_message = "Working on it..."
+            else:
+                progress_emoji = "🚀"
+                status_message = "Almost there..."
 
+
+            animation_text = (
+                f"╭─✨ P L E A S E  W A I T ✨─╮\n"
+                f"│\n"
+                f"  {title}\n"
+                f"│\n"
+                f"  {progress_emoji} {status_message}\n"
+                f"│  [{progress_bar}] {progress_percent}%\n"
+                f"│\n"
+                f"╰─✨──────────────────✨─╯"
+            )
+
+            if animation_text != last_text:
+                try:
+                    await context.bot.edit_message_text(
+                        animation_text,
+                        chat_id=chat_id,
+                        message_id=sent_message.message_id
+                    )
+                    last_text = animation_text
+                except BadRequest as e:
+                    if 'message is not modified' not in str(e).lower():
+                        logger.warning(f"Error editing stylish loading animation: {e}")
+                    pass
+            
+            await asyncio.sleep(0.15)
+
+        # Final state
+        final_text = (
+            f"╭──🎉 C O M P L E T E 🎉──╮\n"
+            f"│\n"
+            f"  {title}\n"
+            f"│\n"
+            f"  ✅ Ready to proceed!\n"
+            f"│  [▓▓▓▓▓▓▓▓▓▓] 100%\n"
+            f"│\n"
+            f"╰──🎉─────────────🎉──╯"
+        )
+        await context.bot.edit_message_text(
+            final_text,
+            chat_id=chat_id,
+            message_id=sent_message.message_id
+        )
+        await asyncio.sleep(0.3) # Short pause on complete
+        
         return sent_message
     except Exception as e:
-        logger.debug(f"Loading animation error: {e}")
-        return None
+        logger.debug(f"Stylish loading animation error: {e}")
+        return await context.bot.send_message(chat_id, f"Processing: {title}...")
+
 
 async def show_success_animation(update: Update, context: ContextTypes.DEFAULT_TYPE, message: str, original_message_id: int = None):
     """Shows an attractive success animation with a burst effect."""
@@ -285,9 +364,9 @@ async def safe_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 # --- ENHANCED USER COMMANDS ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
+    """Enhanced start command with better UI and error handling."""
     try:
-        loading_msg = await show_loading_animation(update, context, "Setting up your account")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['start'])
         
         user = update.effective_user
         if not user:
@@ -311,6 +390,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 'join_date': datetime.now().isoformat(),
                 'streak_count': 0,
                 'total_earned': 0.0,
+                'notifications_enabled': True,
                 'level': "Starter"
             }
             
@@ -392,7 +472,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             [f"{EMOJIS['gift']} Daily Bonus", f"{EMOJIS['magic']} Tasks"],
             [f"{EMOJIS['bank']} My Vault", f"{EMOJIS['cash']} Withdraw"],
             [f"{EMOJIS['rocket']} Invite Friends", f"{EMOJIS['diamond']} Set UPI"],
-            ["📊 My Stats", "❓ Help & Guide"]
+            ["📊 My Stats", f"{EMOJIS['notify']} Notifications"],
+            ["❓ Help & Guide"]
         ]
         
         if user_id == str(ADMIN_ID):
@@ -420,7 +501,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
+    """Enhanced message handler with better error handling."""
     try:
         text = update.message.text
         user_id = get_user_id(update)
@@ -433,6 +514,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"{EMOJIS['rocket']} Invite Friends": refer_command,
             f"{EMOJIS['diamond']} Set UPI": link_upi_start,
             "📊 My Stats": show_user_stats,
+            f"{EMOJIS['notify']} Notifications": notifications_menu,
             "❓ Help & Guide": help_command
         }
 
@@ -457,10 +539,80 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             None
         )
 
+async def notifications_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Shows notification settings menu."""
+    user_id = get_user_id(update)
+    users_data = load_data(USERS_FILE)
+    user_data = users_data.get(user_id)
+
+    if not user_data:
+        await start_command(update, context)
+        return
+
+    is_enabled = user_data.get('notifications_enabled', True)
+
+    if is_enabled:
+        status_emoji = "✅"
+        status_text = "Enabled"
+        button_emoji = "🔕"
+        button_text = "Disable Notifications"
+        explanation = "You will receive daily reminders to claim your bonus."
+    else:
+        status_emoji = "❌"
+        status_text = "Disabled"
+        button_emoji = "🔔"
+        button_text = "Enable Notifications"
+        explanation = "You will not receive any daily reminders."
+
+    menu_text = (
+        f"🔔 *Notification Settings*\n\n"
+        f"Current Status: *{status_text} {status_emoji}*\n\n"
+        f"_{explanation}_"
+    )
+
+    keyboard = [
+        [InlineKeyboardButton(f"{button_emoji} {button_text}", callback_data="toggle_notifications")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if update.callback_query:
+        try:
+            await update.callback_query.edit_message_text(
+                text=menu_text,
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except BadRequest as e:
+            if 'message is not modified' not in str(e).lower():
+                logger.warning(f"Error editing notifications menu: {e}")
+    else:
+        await safe_send_message(
+            update, context,
+            text=menu_text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+async def toggle_notifications_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Toggles the user's notification setting."""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = get_user_id(update)
+    users_data = load_data(USERS_FILE)
+    
+    if user_id in users_data:
+        current_status = users_data[user_id].get('notifications_enabled', True)
+        users_data[user_id]['notifications_enabled'] = not current_status
+        save_data(users_data, USERS_FILE)
+        await notifications_menu(update, context)
+    else:
+        await query.edit_message_text("Could not find your data. Please use /start again.")
+
 async def claim_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Enhanced daily reward system with updated streaks and bonuses."""
     try:
-        loading_msg = await show_loading_animation(update, context, "Checking your daily bonus")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['claim'])
         
         user_id = get_user_id(update)
         users_data = load_data(USERS_FILE)
@@ -543,9 +695,8 @@ async def claim_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await show_error_animation(update, context, "Unable to process your bonus right now.", None)
 
 async def my_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Opening your vault")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['wallet'])
         
         user_id = get_user_id(update)
         users_data = load_data(USERS_FILE)
@@ -638,9 +789,8 @@ async def my_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 async def show_user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Gathering your stats")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['stats'])
         
         user_id = get_user_id(update)
         users_data = load_data(USERS_FILE)
@@ -692,7 +842,6 @@ async def show_user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
 
 async def link_upi_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # ... code for this function is unchanged ...
     try:
         user_id = get_user_id(update)
         users_data = load_data(USERS_FILE)
@@ -726,9 +875,8 @@ async def link_upi_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return ConversationHandler.END
 
 async def link_upi_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Validating your UPI")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['upi'])
         
         user_id = get_user_id(update)
         upi_address = update.message.text.strip()
@@ -781,9 +929,8 @@ async def link_upi_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return ConversationHandler.END
 
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Processing withdrawal")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['withdraw'])
         
         user_id = get_user_id(update)
         users_data = load_data(USERS_FILE)
@@ -948,9 +1095,8 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 async def refer_command(update: Update, context: ContextTypes.DEFAULT_TYPE, force_new: bool = False) -> None:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Generating your referral link")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['refer'])
         
         user_id = get_user_id(update)
         bot_username = (await context.bot.get_me()).username
@@ -1025,7 +1171,7 @@ async def refer_command(update: Update, context: ContextTypes.DEFAULT_TYPE, forc
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Enhanced help system with updated streak info."""
     try:
-        loading_msg = await show_loading_animation(update, context, "Loading help guide")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['help'])
         
         help_msg = (
             f"❓ *COMPLETE USER GUIDE* ❓\n\n"
@@ -1077,9 +1223,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await show_error_animation(update, context, "Help system unavailable. Please try again!", None)
 
 async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE, force_new: bool = False) -> None:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Loading available tasks")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['tasks'])
         
         user_id = get_user_id(update)
         tasks_data = load_data(TASKS_FILE)
@@ -1237,12 +1382,11 @@ async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE, force_n
         )
 
 async def verify_membership_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
         query = update.callback_query
         await query.answer("🔍 Verifying membership...")
 
-        loading_msg = await show_loading_animation(update, context, "Verifying your membership")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['verify'])
 
         user_id = str(query.from_user.id)
         callback_parts = query.data.split(':', 2)
@@ -1384,7 +1528,6 @@ async def verify_membership_callback(update: Update, context: ContextTypes.DEFAU
             pass
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
         query = update.callback_query
         data = query.data
@@ -1424,13 +1567,62 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as e:
         logger.error(f"Error in handle_callback_query: {e}")
 
+# --- SCHEDULED JOBS ---
+async def send_daily_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Sends a daily reminder to users who haven't claimed their bonus."""
+    logger.info("Running daily reminder job...")
+    users_data = load_data(USERS_FILE)
+    now = datetime.now()
+    reminded_count = 0
+
+    for user_id, user_data in users_data.items():
+        if not user_data.get('notifications_enabled', True):
+            continue
+
+        should_remind = True
+        last_claim_str = user_data.get('last_claim')
+
+        if last_claim_str:
+            try:
+                last_claim_time = datetime.fromisoformat(last_claim_str)
+                if now - last_claim_time < timedelta(hours=24):
+                    should_remind = False
+            except ValueError:
+                logger.warning(f"Invalid last_claim format for user {user_id}")
+        
+        if should_remind:
+            try:
+                reminder_message = (
+                    f"👋 Hey {user_data.get('first_name', 'there')}!\n\n"
+                    f"🎁 Your daily bonus is ready to be claimed! Don't miss out on your reward and break your streak! 🔥"
+                )
+                keyboard = [[InlineKeyboardButton(f"{EMOJIS['gift']} Claim Now!", callback_data="quick_claim")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                await context.bot.send_message(
+                    chat_id=user_id, 
+                    text=reminder_message,
+                    reply_markup=reply_markup
+                )
+                reminded_count += 1
+                await asyncio.sleep(0.1)
+            except Forbidden:
+                logger.warning(f"User {user_id} has blocked the bot. Disabling notifications for them.")
+                users_data[user_id]['notifications_enabled'] = False
+            except Exception as e:
+                logger.error(f"Failed to send reminder to {user_id}: {e}")
+    
+    save_data(users_data, USERS_FILE)
+    logger.info(f"Daily reminder job finished. Sent reminders to {reminded_count} users.")
+
+
+# --- ADMIN FUNCTIONS ---
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
         if get_user_id(update) != str(ADMIN_ID):
             return
 
-        loading_msg = await show_loading_animation(update, context, "Loading admin dashboard")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin'])
         
         users_data = load_data(USERS_FILE)
         tasks_data = load_data(TASKS_FILE)
@@ -1487,7 +1679,6 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await show_error_animation(update, context, "Admin panel error!")
 
 async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
         text = update.message.text
         if get_user_id(update) != str(ADMIN_ID):
@@ -1517,9 +1708,8 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await show_error_animation(update, context, "Admin action failed!")
 
 async def detailed_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Compiling statistics")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_stats'])
         
         users_data = load_data(USERS_FILE)
         tasks_data = load_data(TASKS_FILE)
@@ -1601,20 +1791,14 @@ async def detailed_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await show_error_animation(update, context, "Failed to generate detailed stats!")
 
 async def system_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Loading system tools")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_tools'])
         
         tools_msg = (
             f"🔧 *SYSTEM TOOLS* 🔧\n\n"
             f"⚠️ *Warning:* These are maintenance tools.\n"
             f"Use with caution!\n\n"
-            f"Available tools:\n"
-            f"• Backup all data\n"
-            f"• Clean expired tasks\n"
-            f"• Reset user streaks\n"
-            f"• Export user data\n"
-            f"• System health check"
+            f"Select a tool to use:"
         )
         
         keyboard = [
@@ -1652,9 +1836,8 @@ async def system_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await show_error_animation(update, context, "System tools unavailable!")
 
 async def view_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Loading user list")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_users'])
         
         users_data = load_data(USERS_FILE)
         if not users_data:
@@ -1745,9 +1928,8 @@ async def view_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await show_error_animation(update, context, "Failed to load user list!")
 
 async def view_withdrawals(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Loading withdrawal requests")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_withdrawals'])
         
         withdrawals_data = load_data(WITHDRAWALS_FILE)
         pending_requests = [(req_id, req) for req_id, req in withdrawals_data.items() 
@@ -1822,7 +2004,6 @@ async def view_withdrawals(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await show_error_animation(update, context, "Failed to load withdrawal requests!")
 
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # ... code for this function is unchanged ...
     try:
         broadcast_msg = (
             f"📤 *TEXT BROADCAST SETUP*\n\n"
@@ -1847,9 +2028,8 @@ async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return ConversationHandler.END
 
 async def broadcast_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Preparing broadcast")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_broadcast'])
         
         message_to_broadcast = f"📢 *Message from Admin:*\n\n{update.message.text}"
         users_data = load_data(USERS_FILE)
@@ -1947,7 +2127,6 @@ async def broadcast_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return ConversationHandler.END
 
 async def broadcast_photo_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # ... code for this function is unchanged ...
     try:
         photo_msg = (
             f"🖼️ *IMAGE BROADCAST SETUP*\n\n"
@@ -1972,9 +2151,8 @@ async def broadcast_photo_start(update: Update, context: ContextTypes.DEFAULT_TY
         return ConversationHandler.END
 
 async def broadcast_photo_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Preparing photo broadcast")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_broadcast'])
         
         if not update.message.photo:
             await show_error_animation(update, context, "Please send a photo! Use /cancel to abort.", loading_msg.message_id if loading_msg else None)
@@ -2082,7 +2260,6 @@ async def broadcast_photo_receive(update: Update, context: ContextTypes.DEFAULT_
         return ConversationHandler.END
 
 async def create_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # ... code for this function is unchanged ...
     try:
         task_msg = (
             f"➕ *NEW TASK CREATION*\n\n"
@@ -2109,9 +2286,8 @@ async def create_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return ConversationHandler.END
 
 async def receive_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Verifying channel")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_task_create'])
         
         channel = update.message.text.strip()
         
@@ -2166,9 +2342,8 @@ async def receive_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return ASK_CHANNEL
 
 async def receive_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Setting reward amount")
+        loading_msg = await show_stylish_loading_animation(update, context, "Setting reward amount")
         
         try:
             reward = int(update.message.text.strip())
@@ -2208,9 +2383,8 @@ async def receive_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return ASK_REWARD
 
 async def receive_expiry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Creating your task")
+        loading_msg = await show_stylish_loading_animation(update, context, "Creating your task")
         
         try:
             days = int(update.message.text.strip())
@@ -2309,9 +2483,8 @@ async def receive_expiry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return ConversationHandler.END
 
 async def clean_expired_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Cleaning expired tasks")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_task_clean'])
         
         tasks_data = load_data(TASKS_FILE)
         now = datetime.now()
@@ -2329,7 +2502,7 @@ async def clean_expired_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE
                     else:
                         active_tasks[task_id] = task
                 except ValueError:
-                    expired_tasks.append((task_id, task))
+                    expired_tasks.append((task_id, task)) # Treat invalid format as expired
             else:
                 active_tasks[task_id] = task
         
@@ -2368,9 +2541,8 @@ async def clean_expired_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE
         await show_error_animation(update, context, "Task cleanup failed!")
 
 async def remove_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
-        loading_msg = await show_loading_animation(update, context, "Loading tasks for removal")
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_task_remove'])
         
         tasks_data = load_data(TASKS_FILE)
         now = datetime.now()
@@ -2451,12 +2623,11 @@ async def remove_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await show_error_animation(update, context, "Failed to load tasks for removal!")
 
 async def remove_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
         query = update.callback_query
         await query.answer("Removing task...")
 
-        loading_msg = await show_loading_animation(update, context, "Removing task")
+        loading_msg = await show_stylish_loading_animation(update, context, "Removing task")
 
         _, task_id_to_remove = query.data.split(':', 1)
 
@@ -2502,14 +2673,124 @@ async def remove_task_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             pass
 
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # ... code for this function is unchanged ...
     await show_success_animation(update, context, "Action cancelled.")
     await start_command(update, context)
     return ConversationHandler.END
 
-async def post_init(application: Application) -> None:
-    # ... code for this function is unchanged ...
+# --- ADMIN TOOL CALLBACKS (NEWLY ADDED) ---
+async def tool_backup_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the 'Backup Data' button callback."""
+    query = update.callback_query
+    await query.answer("💾 Creating backup...")
+    loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_backup'])
+    
+    success = await create_backup()
+    
+    if success:
+        await show_success_animation(update, context, "All data files have been successfully backed up.", loading_msg.message_id)
+    else:
+        await show_error_animation(update, context, "The backup process failed. Please check the logs.", loading_msg.message_id)
+
+async def tool_clean_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the 'Clean Expired' button callback."""
+    query = update.callback_query
+    await query.answer("🧹 Cleaning tasks...")
+    # The clean_expired_tasks function already handles animations and user feedback.
+    await clean_expired_tasks(update, context)
+
+async def tool_export_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the 'Export Users' button callback."""
+    query = update.callback_query
+    await query.answer("📤 Exporting user data...")
+    loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_export'])
+    
     try:
+        users_data = load_data(USERS_FILE)
+        if not users_data:
+            await show_error_animation(update, context, "No user data to export.", loading_msg.message_id)
+            return
+
+        filename = f"users_export_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+        save_data(users_data, filename)
+        
+        await context.bot.send_document(
+            chat_id=update.effective_chat.id,
+            document=open(filename, 'rb'),
+            caption=f"📊 Full user data export containing {len(users_data)} users."
+        )
+        os.remove(filename)
+
+        if loading_msg:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=loading_msg.message_id)
+
+    except Exception as e:
+        logger.error(f"Error during user export: {e}")
+        await show_error_animation(update, context, "Failed to export user data.", loading_msg.message_id if loading_msg else None)
+
+async def tool_health_check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the 'Health Check' button callback."""
+    query = update.callback_query
+    await query.answer("🩺 Performing health check...")
+    loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_health'])
+
+    try:
+        health_report = ["🩺 *System Health Report* 🩺\n"]
+        
+        # 1. Bot API Connectivity
+        try:
+            bot_info = await context.bot.get_me()
+            health_report.append(f"✅ Bot API: Connected as @{bot_info.username}")
+        except Exception as e:
+            health_report.append(f"❌ Bot API: Connection FAILED! Error: {e}")
+
+        # 2. Data File Accessibility
+        for file in [USERS_FILE, TASKS_FILE, WITHDRAWALS_FILE]:
+            if os.path.exists(file):
+                try:
+                    load_data(file)
+                    health_report.append(f"✅ Data File: `{file}` is accessible and valid.")
+                except Exception:
+                       health_report.append(f"❌ Data File: `{file}` is corrupted or unreadable.")
+            else:
+                health_report.append(f"⚠️ Data File: `{file}` does not exist (will be created).")
+
+        # 3. Job Queue Check
+        jobs = context.job_queue.get_jobs_by_name("daily_reminder_job")
+        if jobs:
+            health_report.append(f"✅ Job Queue: Daily reminder job is scheduled.")
+        else:
+            health_report.append(f"❌ Job Queue: Daily reminder job is NOT scheduled!")
+
+        report_str = "\n".join(health_report)
+        await show_success_animation(update, context, report_str, loading_msg.message_id)
+
+    except Exception as e:
+        logger.error(f"Error during health check: {e}")
+        await show_error_animation(update, context, "Health check failed to complete.", loading_msg.message_id if loading_msg else None)
+
+async def handle_admin_tool_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles callbacks from the admin system tools menu."""
+    query = update.callback_query
+    data = query.data
+
+    if data == "tool_backup":
+        await tool_backup_callback(update, context)
+    elif data == "tool_clean":
+        await tool_clean_callback(update, context)
+    elif data == "tool_export":
+        await tool_export_users_callback(update, context)
+    elif data == "tool_health":
+        await tool_health_check_callback(update, context)
+    else:
+        await query.answer("Unknown tool command.")
+
+async def post_init(application: Application) -> None:
+    """Enhanced bot initialization with comprehensive command setup."""
+    try:
+        # Create initial backup when bot starts
+        await create_backup()
+
+        # User commands
         user_commands = [
             BotCommand("start", "🚀 Start/Restart Bot"),
             BotCommand("help", "❓ Complete Guide & Help"),
@@ -2572,7 +2853,6 @@ async def post_init(application: Application) -> None:
         logger.error(f"Error in post_init: {e}")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ... code for this function is unchanged ...
     try:
         logger.error(f"Exception while handling an update: {context.error}")
         
@@ -2585,7 +2865,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         if not hasattr(context.bot_data, 'last_error_notification'):
             context.bot_data['last_error_notification'] = 0
         
-        now = datetime.now().timestamp()
+        now = time.time()
         if now - context.bot_data['last_error_notification'] > 300:  # 5 minutes
             try:
                 error_msg = (
@@ -2616,9 +2896,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
     except Exception as e:
         logger.error(f"Error in error handler: {e}")
-
+        
 async def create_backup() -> bool:
-    # ... code for this function is unchanged ...
+    """Creates backup of all data files."""
     try:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         backup_dir = f"backup_{timestamp}"
@@ -2642,7 +2922,6 @@ async def create_backup() -> bool:
 
 def main() -> None:
     """Enhanced main function with comprehensive setup."""
-    # ... code for this function is unchanged, except for one line in print ...
     if BOT_TOKEN in ["YOUR_TELEGRAM_BOT_TOKEN", ""]:
         print("🚨 ERROR: Please set your BOT_TOKEN!")
         return
@@ -2719,10 +2998,16 @@ def main() -> None:
             CommandHandler("createtask", create_task_start, filters=admin_filter),
             CommandHandler("cleantasks", clean_expired_tasks, filters=admin_filter),
             
+            CallbackQueryHandler(toggle_notifications_callback, pattern='^toggle_notifications$'),
             CallbackQueryHandler(verify_membership_callback, pattern='^verify:'),
             CallbackQueryHandler(remove_task_callback, pattern='^remove:'),
+            CallbackQueryHandler(handle_admin_tool_callback, pattern='^tool_'),
             CallbackQueryHandler(handle_callback_query),
             
+            MessageHandler(
+                filters.Regex(f'^({EMOJIS["notify"]} Notifications)$'), 
+                notifications_menu
+            ),
             MessageHandler(
                 filters.Regex('^(📤 Broadcast Text|🖼️ Broadcast Image|📊 Detailed Stats|👥 User List|💸 Withdrawal Requests|🔧 System Tools|➕ Create Task|🗑️ Remove Task|🧹 Clean Expired Tasks|⬅️ Back to Main)$') & admin_filter, 
                 handle_admin_message
@@ -2733,6 +3018,11 @@ def main() -> None:
         application.add_handlers(handlers)
         
         application.add_error_handler(error_handler)
+
+        job_queue = application.job_queue
+        ist = ZoneInfo("Asia/Kolkata")
+        job_queue.run_daily(send_daily_reminders, time=dt_time(hour=10, minute=0, tzinfo=ist), name="daily_reminder_job")
+
 
         print("=" * 60)
         print("🤖 TELEGRAM EARNING BOT")
@@ -2748,8 +3038,9 @@ def main() -> None:
         print("💡 Press Ctrl+C to stop the bot")
         print("=" * 60)
         
-        create_backup()
+        # The initial backup is now handled by post_init
         
+        # Run the bot
         application.run_polling(
             drop_pending_updates=True,
             allowed_updates=Update.ALL_TYPES
