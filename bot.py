@@ -5,7 +5,6 @@ import os
 import time
 from datetime import datetime, timedelta, time as dt_time
 from random import uniform, choice
-from zoneinfo import ZoneInfo
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, BotCommand, BotCommandScopeChat
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
 from telegram.constants import ParseMode, ChatAction
@@ -278,6 +277,7 @@ def save_data(data: Dict[str, Any], filepath: str) -> bool:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         
+        # Verify write
         with open(filepath, 'r', encoding='utf-8') as f:
             json.load(f)
         
@@ -556,13 +556,13 @@ async def notifications_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         status_text = "Enabled"
         button_emoji = "🔕"
         button_text = "Disable Notifications"
-        explanation = "You will receive daily reminders to claim your bonus."
+        explanation = "You will receive reminders 24 hours after your last claim."
     else:
         status_emoji = "❌"
         status_text = "Disabled"
         button_emoji = "🔔"
         button_text = "Enable Notifications"
-        explanation = "You will not receive any daily reminders."
+        explanation = "You will not receive any claim reminders."
 
     menu_text = (
         f"🔔 *Notification Settings*\n\n"
@@ -643,7 +643,7 @@ async def claim_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             if time_since_last_claim <= timedelta(hours=48):
                 user['streak_count'] = user.get('streak_count', 0) + 1
             else:
-                user['streak_count'] = 1
+                user['streak_count'] = 1 # Streak broken
         else:
             user['streak_count'] = 1
 
@@ -662,6 +662,23 @@ async def claim_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         user['total_earned'] = user.get('total_earned', 0) + total_reward
         user['last_claim'] = now.isoformat()
         save_data(users_data, USERS_FILE)
+
+        # Schedule the next reminder
+        job_name = f'reminder_{user_id}'
+        # Remove any existing reminder job for this user to avoid duplicates
+        current_jobs = context.job_queue.get_jobs_by_name(job_name)
+        for job in current_jobs:
+            job.schedule_removal()
+            logger.info(f"Removed existing reminder job for user {user_id}")
+
+        # Schedule a new reminder for 24 hours from now
+        context.job_queue.run_once(
+            send_single_reminder,
+            when=timedelta(hours=24),
+            name=job_name,
+            data={'user_id': user_id, 'first_name': user.get('first_name', 'there')}
+        )
+        logger.info(f"Scheduled next reminder for user {user_id} in 24 hours.")
 
         level_info = get_level_info(user['balance'])
         reward_msg = f"💰 Base Reward: *₹{format_number(base_reward)}*\n"
@@ -1568,52 +1585,51 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         logger.error(f"Error in handle_callback_query: {e}")
 
 # --- SCHEDULED JOBS ---
-async def send_daily_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Sends a daily reminder to users who haven't claimed their bonus."""
-    logger.info("Running daily reminder job...")
+async def send_single_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Sends a personalized reminder to a single user 24 hours after their last claim."""
+    job = context.job
+    user_id = job.data['user_id']
+    first_name = job.data['first_name']
+    logger.info(f"Running single reminder job for user {user_id}")
+
     users_data = load_data(USERS_FILE)
-    now = datetime.now()
-    reminded_count = 0
+    user_data = users_data.get(str(user_id))
 
-    for user_id, user_data in users_data.items():
-        if not user_data.get('notifications_enabled', True):
-            continue
+    # Check if user data exists and notifications are enabled
+    if not user_data or not user_data.get('notifications_enabled', True):
+        logger.info(f"User {user_id} has notifications disabled. Skipping reminder.")
+        return
 
-        should_remind = True
-        last_claim_str = user_data.get('last_claim')
+    # Check if they already claimed recently (e.g., manually before the reminder)
+    last_claim_str = user_data.get('last_claim')
+    if last_claim_str:
+        last_claim_time = datetime.fromisoformat(last_claim_str)
+        # If last claim was less than 24 hours ago, it means they claimed again
+        if datetime.now() - last_claim_time < timedelta(hours=24):
+            logger.info(f"User {user_id} already claimed. Skipping reminder.")
+            return
 
-        if last_claim_str:
-            try:
-                last_claim_time = datetime.fromisoformat(last_claim_str)
-                if now - last_claim_time < timedelta(hours=24):
-                    should_remind = False
-            except ValueError:
-                logger.warning(f"Invalid last_claim format for user {user_id}")
-        
-        if should_remind:
-            try:
-                reminder_message = (
-                    f"👋 Hey {user_data.get('first_name', 'there')}!\n\n"
-                    f"🎁 Your daily bonus is ready to be claimed! Don't miss out on your reward and break your streak! 🔥"
-                )
-                keyboard = [[InlineKeyboardButton(f"{EMOJIS['gift']} Claim Now!", callback_data="quick_claim")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
+    try:
+        reminder_message = (
+            f"👋 Hey {first_name}!\n\n"
+            f"🎁 Your daily bonus is ready to be claimed! Don't miss out on your reward and break your streak! 🔥"
+        )
+        keyboard = [[InlineKeyboardButton(f"{EMOJIS['gift']} Claim Now!", callback_data="quick_claim")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-                await context.bot.send_message(
-                    chat_id=user_id, 
-                    text=reminder_message,
-                    reply_markup=reply_markup
-                )
-                reminded_count += 1
-                await asyncio.sleep(0.1)
-            except Forbidden:
-                logger.warning(f"User {user_id} has blocked the bot. Disabling notifications for them.")
-                users_data[user_id]['notifications_enabled'] = False
-            except Exception as e:
-                logger.error(f"Failed to send reminder to {user_id}: {e}")
-    
-    save_data(users_data, USERS_FILE)
-    logger.info(f"Daily reminder job finished. Sent reminders to {reminded_count} users.")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=reminder_message,
+            reply_markup=reply_markup
+        )
+        logger.info(f"Sent single reminder to {user_id}")
+    except Forbidden:
+        logger.warning(f"User {user_id} has blocked the bot. Disabling notifications for them.")
+        if user_data:
+            users_data[str(user_id)]['notifications_enabled'] = False
+            save_data(users_data, USERS_FILE)
+    except Exception as e:
+        logger.error(f"Failed to send single reminder to {user_id}: {e}")
 
 
 # --- ADMIN FUNCTIONS ---
@@ -2750,16 +2766,15 @@ async def tool_health_check_callback(update: Update, context: ContextTypes.DEFAU
                     load_data(file)
                     health_report.append(f"✅ Data File: `{file}` is accessible and valid.")
                 except Exception:
-                       health_report.append(f"❌ Data File: `{file}` is corrupted or unreadable.")
+                        health_report.append(f"❌ Data File: `{file}` is corrupted or unreadable.")
             else:
                 health_report.append(f"⚠️ Data File: `{file}` does not exist (will be created).")
 
-        # 3. Job Queue Check
-        jobs = context.job_queue.get_jobs_by_name("daily_reminder_job")
-        if jobs:
-            health_report.append(f"✅ Job Queue: Daily reminder job is scheduled.")
+        # 3. Job Queue Check (for any running jobs)
+        if context.job_queue:
+            health_report.append(f"✅ Job Queue: Service is running with {len(context.job_queue.jobs())} jobs.")
         else:
-            health_report.append(f"❌ Job Queue: Daily reminder job is NOT scheduled!")
+            health_report.append(f"❌ Job Queue: Service is NOT running!")
 
         report_str = "\n".join(health_report)
         await show_success_animation(update, context, report_str, loading_msg.message_id)
@@ -3019,11 +3034,6 @@ def main() -> None:
         
         application.add_error_handler(error_handler)
 
-        job_queue = application.job_queue
-        ist = ZoneInfo("Asia/Kolkata")
-        job_queue.run_daily(send_daily_reminders, time=dt_time(hour=10, minute=0, tzinfo=ist), name="daily_reminder_job")
-
-
         print("=" * 60)
         print("🤖 TELEGRAM EARNING BOT")
         print("=" * 60)
@@ -3056,4 +3066,3 @@ def main() -> None:
 if __name__ == '__main__':
     keep_alive()
     main()
-
