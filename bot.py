@@ -1,3 +1,4 @@
+from keep_alive import keep_alive
 import logging
 import json
 import os
@@ -3240,5 +3241,6 @@ def main() -> None:
         print("🔧 Check your BOT_TOKEN and network connection")
 
 if __name__ == '__main__':
+    keep_alive()
     main()
 
