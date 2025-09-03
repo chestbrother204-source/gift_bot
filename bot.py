@@ -1,4 +1,3 @@
-from keep_alive import keep_alive
 import logging
 import json
 import os
@@ -29,7 +28,7 @@ EMOJIS = {
     'money': '💰', 'gift': '🎁', 'rocket': '🚀', 'star': '⭐', 'fire': '🔥',
     'diamond': '💎', 'crown': '👑', 'trophy': '🏆', 'party': '🎉', 'cash': '💵',
     'bank': '🏦', 'coin': '🪙', 'gem': '💠', 'magic': '✨', 'lightning': '⚡',
-    'clock': '⏰', 'success': '✅', 'error': '❌', 'notify': '🔔'
+    'clock': '⏰', 'success': '✅', 'error': '❌', 'notify': '🔔', 'airdrop': '💧'
 }
 
 TYPING_DELAY = 0.5    # Seconds to show typing indicator
@@ -58,7 +57,8 @@ LOADING_TITLES = {
     'admin_task_remove': '✦ TASK DATABASE ✦',
     'admin_backup': '✦ SECURE BACKUP ✦',
     'admin_export': '✦ DATA EXPORT ✦',
-    'admin_health': '✦ SYSTEM DIAGNOSTICS ✦'
+    'admin_health': '✦ SYSTEM DIAGNOSTICS ✦',
+    'admin_airdrop': '✦ AIRDROP INITIATION ✦'
 }
 
 
@@ -82,6 +82,16 @@ STREAK_REWARDS = {
     30: 5.0,
     100: 10.0
 }
+
+# --- REFERRAL MILESTONE BONUSES ---
+REFERRAL_MILESTONES = {
+    5: {'cash': 3.0, 'coins': 0},
+    10: {'cash': 10.0, 'coins': 20},
+    50: {'cash': 75.0, 'coins': 50},
+    100: {'cash': 200.0, 'coins': 100},
+    1000: {'cash': 2000.0, 'coins': 500},
+}
+
 
 # --- LOGGING SETUP ---
 logging.basicConfig(
@@ -287,7 +297,7 @@ def save_data(data: Dict[str, Any], filepath: str) -> bool:
         return False
 
 # --- CONVERSATION STATES ---
-LINK_UPI, BROADCAST_MESSAGE, ASK_CHANNEL, ASK_REWARD, ASK_EXPIRY, BROADCAST_PHOTO = range(6)
+LINK_UPI, BROADCAST_MESSAGE, ASK_CHANNEL, ASK_REWARD, ASK_EXPIRY, BROADCAST_PHOTO, AIRDROP_ASK_CASH, AIRDROP_ASK_COINS = range(8)
 
 # --- UTILITY FUNCTIONS ---
 def get_user_id(update: Update) -> str:
@@ -397,13 +407,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             if context.args:
                 referrer_id = context.args[0]
                 if referrer_id in users_data and referrer_id != user_id:
+                    # Standard referral bonus
                     users_data[user_id]['balance'] += REFERRAL_BONUS
                     users_data[user_id]['total_earned'] += REFERRAL_BONUS
-                    
                     users_data[referrer_id]['balance'] += REFERRAL_BONUS
                     users_data[referrer_id]['total_earned'] += REFERRAL_BONUS
                     users_data[referrer_id]['referrals'] += 1
                     
+                    # Send standard welcome and notification
                     welcome_msg = (
                         f"🎊 *WELCOME ABOARD!* 🎊\n\n"
                         f"🎁 You've joined through a friend's link!\n"
@@ -431,6 +442,35 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                         )
                     except Exception as e:
                         logger.warning(f"Failed to notify referrer {referrer_id}: {e}")
+                    
+                    # --- Check for Referral Milestones ---
+                    new_referral_count = users_data[referrer_id]['referrals']
+                    milestone_bonus = REFERRAL_MILESTONES.get(new_referral_count)
+
+                    if milestone_bonus:
+                        cash_bonus = milestone_bonus['cash']
+                        coin_bonus = milestone_bonus['coins']
+                        
+                        users_data[referrer_id]['balance'] += cash_bonus
+                        users_data[referrer_id]['total_earned'] += cash_bonus
+                        users_data[referrer_id]['coin_balance'] = users_data[referrer_id].get('coin_balance', 0) + coin_bonus
+
+                        try:
+                            milestone_msg = (
+                                f"🎉 *REFERRAL MILESTONE REACHED!* 🎉\n\n"
+                                f"🏆 You've invited *{new_referral_count} friends*!\n"
+                                f"🎁 As a bonus, you've received:\n"
+                                f"  - 💰 *₹{cash_bonus:.2f}* Cash\n"
+                                f"  - 🪙 *{coin_bonus}* Coins\n\n"
+                                f"🔥 Keep inviting to unlock the next milestone!"
+                            )
+                            await context.bot.send_message(
+                                chat_id=referrer_id,
+                                text=milestone_msg,
+                                parse_mode=ParseMode.MARKDOWN
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to notify referrer {referrer_id} about milestone: {e}")
             
             save_data(users_data, USERS_FILE)
 
@@ -1203,7 +1243,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             f"{EMOJIS['magic']} *Task System*\n"
             f"• Complete simple tasks like joining channels to earn coins 🪙.\n\n"
             f"{EMOJIS['rocket']} *Referral Program*\n"
-            f"• Invite friends and you both get *₹{REFERRAL_BONUS:.2f}* when they start!\n\n"
+            f"• Invite friends and you both get *₹{REFERRAL_BONUS:.2f}* when they start!\n"
+            f"• Reach milestones for huge extra bonuses!\n\n"
             f"{EMOJIS['cash']} *Withdrawal System*\n"
             f"• Minimum withdrawal: *₹{MIN_WITHDRAWAL:.0f}*\n"
             f"• Payments via UPI within 24-48 hours.\n\n"
@@ -1661,10 +1702,11 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         
         keyboard = [
             ["📤 Broadcast Text", "🖼️ Broadcast Image"],
-            ["➕ Create Task", "🗑️ Remove Task"],
-            ["📊 Detailed Stats", "👥 User List"],
-            ["💸 Withdrawal Requests", "🔧 System Tools"],
-            ["🧹 Clean Expired Tasks", "⬅️ Back to Main"]
+            [f"{EMOJIS['airdrop']} Airdrop", "➕ Create Task"],
+            ["🗑️ Remove Task", "📊 Detailed Stats"],
+            ["👥 User List", "💸 Withdrawal Requests"],
+            ["🔧 System Tools", "🧹 Clean Expired Tasks"],
+            ["⬅️ Back to Main"]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         
@@ -1707,6 +1749,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             "👥 User List": view_users,
             "💸 Withdrawal Requests": view_withdrawals,
             "🔧 System Tools": system_tools,
+            f"{EMOJIS['airdrop']} Airdrop": airdrop_start,
             "➕ Create Task": create_task_start,
             "🗑️ Remove Task": remove_task_start,
             "🧹 Clean Expired Tasks": clean_expired_tasks,
@@ -2274,6 +2317,128 @@ async def broadcast_photo_receive(update: Update, context: ContextTypes.DEFAULT_
         await show_error_animation(update, context, "Photo broadcast failed!")
         await admin_command(update, context)
         return ConversationHandler.END
+
+async def airdrop_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Starts the airdrop conversation."""
+    try:
+        airdrop_msg = (
+            f"{EMOJIS['airdrop']} *Airdrop Tool*\n\n"
+            f"💸 *Step 1: Cash Amount*\n\n"
+            f"Enter the amount of cash (e.g., `2.5`) to airdrop to every user.\n\n"
+            f"Enter `0` if you don't want to airdrop cash.\n\n"
+            f"Type /cancel to abort."
+        )
+        await safe_send_message(
+            update, context, airdrop_msg,
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return AIRDROP_ASK_CASH
+    except Exception as e:
+        logger.error(f"Error in airdrop_start: {e}")
+        await show_error_animation(update, context, "Airdrop setup failed!")
+        return ConversationHandler.END
+
+async def airdrop_receive_cash(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receives cash amount and asks for coin amount."""
+    try:
+        cash_amount_str = update.message.text.strip()
+        cash_amount = float(cash_amount_str)
+        if cash_amount < 0:
+            await update.message.reply_text("Cash amount cannot be negative. Please enter a valid amount (or 0).")
+            return AIRDROP_ASK_CASH
+        
+        context.user_data['airdrop_cash'] = cash_amount
+        
+        coins_msg = (
+            f"✅ Cash amount set to *₹{cash_amount:.2f}*\n\n"
+            f"🪙 *Step 2: Coin Amount*\n\n"
+            f"Enter the amount of coins (e.g., `100`) to airdrop to every user.\n\n"
+            f"Enter `0` if you don't want to airdrop coins.\n\n"
+            f"Type /cancel to abort."
+        )
+        await update.message.reply_text(coins_msg, parse_mode=ParseMode.MARKDOWN)
+        return AIRDROP_ASK_COINS
+
+    except ValueError:
+        await update.message.reply_text("Invalid number. Please enter a valid cash amount (e.g., `2.5` or `0`).")
+        return AIRDROP_ASK_CASH
+    except Exception as e:
+        logger.error(f"Error in airdrop_receive_cash: {e}")
+        await show_error_animation(update, context, "Airdrop process failed!")
+        return ConversationHandler.END
+
+async def airdrop_receive_coins(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receives coin amount and executes the airdrop."""
+    try:
+        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_airdrop'])
+
+        coin_amount_str = update.message.text.strip()
+        coin_amount = int(coin_amount_str)
+        cash_amount = context.user_data.get('airdrop_cash', 0.0)
+
+        if coin_amount < 0:
+            await show_error_animation(update, context, "Coin amount cannot be negative. Please enter a valid amount (or 0).", loading_msg.message_id)
+            return AIRDROP_ASK_COINS
+
+        if cash_amount == 0 and coin_amount == 0:
+            await show_error_animation(update, context, "Both amounts cannot be zero. Action cancelled.", loading_msg.message_id)
+            await admin_command(update, context)
+            return ConversationHandler.END
+
+        users_data = load_data(USERS_FILE)
+        total_users = len(users_data)
+        
+        if total_users == 0:
+            await show_error_animation(update, context, "No users to airdrop to!", loading_msg.message_id)
+            await admin_command(update, context)
+            return ConversationHandler.END
+
+        sent_count, failed_count = 0, 0
+        airdrop_notification = (
+            f"🎉 *You've received an Airdrop!* 🎉\n\n"
+            f"The admin has sent you a special gift:\n"
+            f"💰 *+₹{cash_amount:.2f}* Cash\n"
+            f"🪙 *+{coin_amount}* Coins\n\n"
+            f"Check your vault to see your new balance!"
+        )
+
+        for i, (user_id, user_data) in enumerate(users_data.items(), 1):
+            user_data['balance'] = user_data.get('balance', 0.0) + cash_amount
+            user_data['coin_balance'] = user_data.get('coin_balance', 0) + coin_amount
+            
+            try:
+                await context.bot.send_message(user_id, airdrop_notification, parse_mode=ParseMode.MARKDOWN)
+                sent_count += 1
+            except Exception as e:
+                failed_count += 1
+                logger.warning(f"Failed to send airdrop notification to {user_id}: {e}")
+            
+            if i % 30 == 0:
+                await asyncio.sleep(1)
+
+        save_data(users_data, USERS_FILE)
+        
+        final_msg = (
+            f"✅ *AIRDROP COMPLETE!*\n\n"
+            f"💰 Cash per user: *₹{cash_amount:.2f}*\n"
+            f"🪙 Coins per user: *{coin_amount}*\n\n"
+            f"📊 *Results:*\n"
+            f"✅ Sent to: *{sent_count}/{total_users}* users\n"
+            f"❌ Failed for: *{failed_count}* users"
+        )
+        await show_success_animation(update, context, final_msg, loading_msg.message_id)
+
+    except ValueError:
+        await show_error_animation(update, context, "Invalid number. Please enter a valid coin amount (e.g., `100` or `0`).")
+        return AIRDROP_ASK_COINS
+    except Exception as e:
+        logger.error(f"Error in airdrop_receive_coins: {e}")
+        await show_error_animation(update, context, "Airdrop process failed critically!")
+    
+    del context.user_data['airdrop_cash']
+    await admin_command(update, context)
+    return ConversationHandler.END
 
 async def create_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
@@ -2971,6 +3136,16 @@ def main() -> None:
             per_chat=True
         )
 
+        airdrop_conv_handler = ConversationHandler(
+            entry_points=[MessageHandler(filters.Regex(f'^{EMOJIS["airdrop"]} Airdrop$') & admin_filter, airdrop_start)],
+            states={
+                AIRDROP_ASK_CASH: [MessageHandler(filters.TEXT & ~filters.COMMAND, airdrop_receive_cash)],
+                AIRDROP_ASK_COINS: [MessageHandler(filters.TEXT & ~filters.COMMAND, airdrop_receive_coins)],
+            },
+            fallbacks=[CommandHandler('cancel', cancel_conversation)],
+            per_user=True, per_chat=True
+        )
+
         main_conv_handler = ConversationHandler(
             entry_points=[
                 MessageHandler(filters.Regex(f'^{EMOJIS["diamond"]} Set UPI$'), link_upi_start),
@@ -2995,6 +3170,7 @@ def main() -> None:
         handlers = [
             task_conv_handler,
             main_conv_handler,
+            airdrop_conv_handler,
             
             CommandHandler("start", start_command),
             CommandHandler("help", help_command),
@@ -3024,7 +3200,7 @@ def main() -> None:
                 notifications_menu
             ),
             MessageHandler(
-                filters.Regex('^(📤 Broadcast Text|🖼️ Broadcast Image|📊 Detailed Stats|👥 User List|💸 Withdrawal Requests|🔧 System Tools|➕ Create Task|🗑️ Remove Task|🧹 Clean Expired Tasks|⬅️ Back to Main)$') & admin_filter, 
+                filters.Regex('^(📤 Broadcast Text|🖼️ Broadcast Image|📊 Detailed Stats|👥 User List|💸 Withdrawal Requests|🔧 System Tools|' + f'{EMOJIS["airdrop"]} Airdrop' + '|➕ Create Task|🗑️ Remove Task|🧹 Clean Expired Tasks|⬅️ Back to Main)$') & admin_filter, 
                 handle_admin_message
             ),
             MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
@@ -3064,5 +3240,5 @@ def main() -> None:
         print("🔧 Check your BOT_TOKEN and network connection")
 
 if __name__ == '__main__':
-    keep_alive()
     main()
+
