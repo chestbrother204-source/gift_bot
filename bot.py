@@ -13,7 +13,7 @@ import asyncio
 from typing import Dict, Any, Tuple
 
 # --- CONFIGURATION ---
-BOT_TOKEN = "8337818595:AAHuG_ayuypWmLjYNj8ALZwKJ_14uF_4GZg"  # Replace with your bot token
+BOT_TOKEN = "8310636090:AAFcFbpeCH-fqm0pNzAi7Ng1hWDw7wF72Xs"  # Replace with your bot token
 ADMIN_ID = 7258860451  # Change this to your Telegram User ID
 MIN_WITHDRAWAL = 500.0
 MIN_REWARD = 0.1
