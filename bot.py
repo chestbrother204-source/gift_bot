@@ -3,6 +3,7 @@ import logging
 import json
 import os
 import time
+import re
 from datetime import datetime, timedelta, time as dt_time
 from random import uniform, choice, randint
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, BotCommand, BotCommandScopeChat
@@ -13,9 +14,10 @@ import asyncio
 from typing import Dict, Any, Tuple
 
 # --- CONFIGURATION ---
-BOT_TOKEN = "8310636090:AAFcFbpeCH-fqm0pNzAi7Ng1hWDw7wF72Xs"  # Replace with your bot token
-ADMIN_ID = 7258860451  # Change this to your Telegram User ID
-MIN_WITHDRAWAL = 500.0
+# IMPORTANT: Replace these with your actual bot token and admin ID
+BOT_TOKEN = "8337818595:AAHuG_ayuypWmLjYNj8ALZwKJ_14uF_4GZg"
+ADMIN_ID = 7258860451
+MIN_WITHDRAWAL = 1000.0
 MIN_REWARD = 0.1
 MAX_REWARD = 2.0
 REFERRAL_BONUS = 1.0
@@ -24,7 +26,7 @@ USERS_FILE = 'users.json'
 WITHDRAWALS_FILE = 'withdrawals.json'
 TASKS_FILE = 'tasks.json'
 SETTINGS_FILE = 'settings.json' # New settings file
-BACKUP_INTERVAL = 3600  # Backup every hour
+BACKUP_INTERVAL = 3600 # Backup every hour
 
 # --- ANTI-SPAM & RATE LIMITING CONFIG ---
 USER_COOLDOWN = {} # Stores user last action timestamp
@@ -38,11 +40,11 @@ EMOJIS = {
     'bank': '🏦', 'coin': '🪙', 'gem': '💠', 'magic': '✨', 'lightning': '⚡',
     'clock': '⏰', 'success': '✅', 'error': '❌', 'notify': '🔔', 'airdrop': '💧',
     'leaderboard': '🏆', 'shield': '🛡️', 'achievement': '🏅', 'feedback': '📝',
-    'quiz': '❓', 'social': '🌐', 'game': '🎮', 'language': '🌐', 'convert': '🔄',
-    'settings': '⚙️'
+    'quiz': '❓', 'social': '🌐', 'game': '🎮', 'convert': '🔄',
+    'settings': '⚙️', 'back': '🔙'
 }
 
-TYPING_DELAY = 0.5     # Seconds to show typing indicator
+TYPING_DELAY = 0.5        # Seconds to show typing indicator
 LOADING_DURATION = 1.2 # Slightly faster for a snappier feel
 
 # Titles for the new stylish loading animation
@@ -73,7 +75,8 @@ LOADING_TITLES = {
     'admin_export': '✦ DATA EXPORT ✦',
     'admin_health': '✦ SYSTEM DIAGNOSTICS ✦',
     'admin_airdrop': '✦ AIRDROP INITIATION ✦',
-    'coin_convert': '✦ COIN CONVERTER ✦'
+    'coin_convert': '✦ COIN CONVERTER ✦',
+    'adjust_balance': '✦ BALANCE ADJUSTMENT ✦',
 }
 
 
@@ -119,76 +122,6 @@ ACHIEVEMENTS = {
     'task_20': {'name': 'Task Master', 'emoji': '🦾', 'desc': 'Complete 20 tasks.', 'type': 'tasks', 'value': 20},
     'task_100': {'name': 'Task Legend', 'emoji': '🏆', 'desc': 'Complete 100 tasks.', 'type': 'tasks', 'value': 100},
 }
-
-# --- MULTI-LANGUAGE SUPPORT ---
-LANGUAGES = {
-    'en': {
-        "welcome_new": "🌟 *Welcome to EarnBot, {first_name}!* 🌟\n\n🎯 Your earning adventure begins now!\n🏅 Current Level: {level_emoji} *{level_name}*\n\n💡 *Quick Start:*\n• 🎁 Claim your daily bonus\n• ✨ Complete simple tasks\n• 💌 Invite friends for bigger rewards\n\n*{quote}*",
-        "welcome_back": "👋 *Welcome back, {first_name}!*\n\n🏅 Level: {level_emoji} *{level_name}*\n💰 Balance: *₹{balance}*\n🪙 Coins: *{coins}*\n\n*{quote}*",
-        "main_menu": "{lightning} *MAIN MENU* {lightning}",
-        "wallet_title": "🏦 *YOUR DIGITAL VAULT* 🏦",
-        "wallet_details": "💰 *Cash Balance:* `₹{balance}`\n🪙 *Coin Balance:* `{coins}`\n📊 *Total Earned:* `₹{total_earned}`\n🔥 *Current Streak:* `{streak} days`\n👥 *Referrals:* `{referrals}`\n\n🏅 *Current Level:* {level_emoji} *{level_name}*",
-        "next_level_progress": "📈 *Next Level Progress:*\n`{progress_bar}`",
-        "streak_progress": "*Streak Progress:*\n{streak_bar}",
-        "upi_id": "💳 *UPI ID:* `{upi}`",
-        "withdrawal_needed": "💡 _You're just *₹{needed}* away from your first withdrawal!_",
-        "claim_success": "💰 Base Reward: *₹{base_reward}*\n🔥 Streak Bonus: *+₹{streak_bonus}* extra!\n💎 Total Earned: *₹{total_reward}*\n📊 New Balance: *₹{balance}*\n⚡ Current Streak: *{streak_count} days*\n🏅 Level: {level_emoji} *{level_name}*",
-        "claim_wait": "⏳ Next bonus is ready in *{hours}h {minutes}m*.",
-        "lang_select": "🌐 Please select your language:",
-        "lang_selected": "✅ Language set to {lang_name}!",
-        # Add all other user-facing strings here
-    },
-    'es': {
-        "welcome_new": "🌟 *¡Bienvenido a EarnBot, {first_name}!* 🌟\n\n🎯 ¡Tu aventura para ganar comienza ahora!\n🏅 Nivel Actual: {level_emoji} *{level_name}*\n\n💡 *Inicio Rápido:*\n• 🎁 Reclama tu bono diario\n• ✨ Completa tareas simples\n• 💌 Invita amigos para mayores recompensas\n\n*{quote}*",
-        "welcome_back": "👋 *¡Bienvenido de nuevo, {first_name}!*\n\n🏅 Nivel: {level_emoji} *{level_name}*\n💰 Saldo: *₹{balance}*\n🪙 Monedas: *{coins}*\n\n*{quote}*",
-        "main_menu": "{lightning} *MENÚ PRINCIPAL* {lightning}",
-        "wallet_title": "🏦 *TU BÓVEDA DIGITAL* 🏦",
-        "wallet_details": "💰 *Saldo en Efectivo:* `₹{balance}`\n🪙 *Saldo de Monedas:* `{coins}`\n📊 *Total Ganado:* `₹{total_earned}`\n🔥 *Racha Actual:* `{streak} días`\n👥 *Referidos:* `{referrals}`\n\n🏅 *Nivel Actual:* {level_emoji} *{level_name}*",
-        "next_level_progress": "📈 *Progreso al Siguiente Nivel:*\n`{progress_bar}`",
-        "streak_progress": "*Progreso de Racha:*\n{streak_bar}",
-        "upi_id": "💳 *ID de UPI:* `{upi}`",
-        "withdrawal_needed": "💡 _¡Estás a solo *₹{needed}* de tu primer retiro!_",
-        "claim_success": "💰 Recompensa Base: *₹{base_reward}*\n🔥 Bono de Racha: *+₹{streak_bonus}* extra!\n💎 Total Ganado: *₹{total_reward}*\n📊 Nuevo Saldo: *₹{balance}*\n⚡ Racha Actual: *{streak_count} días*\n🏅 Nivel: {level_emoji} *{level_name}*",
-        "claim_wait": "⏳ El próximo bono estará listo en *{hours}h {minutes}m*.",
-        "lang_select": "🌐 Por favor, selecciona tu idioma:",
-        "lang_selected": "✅ ¡Idioma establecido a {lang_name}!",
-    },
-    'hi': {
-        "welcome_new": "🌟 *EarnBot में आपका स्वागत है, {first_name}!* 🌟\n\n🎯 आपकी कमाई का सफ़र अब शुरू होता है!\n🏅 वर्तमान स्तर: {level_emoji} *{level_name}*\n\n💡 *त्वरित शुरुआत:*\n• 🎁 अपना दैनिक बोनस प्राप्त करें\n• ✨ सरल कार्यों को पूरा करें\n• 💌 बड़े पुरस्कारों के लिए दोस्तों को आमंत्रित करें\n\n*{quote}*",
-        "welcome_back": "👋 *वापसी पर स्वागत है, {first_name}!*\n\n🏅 स्तर: {level_emoji} *{level_name}*\n💰 शेष राशि: *₹{balance}*\n🪙 सिक्के: *{coins}*\n\n*{quote}*",
-        "main_menu": "{lightning} *मुख्य मेन्यू* {lightning}",
-        "wallet_title": "🏦 *आपकी डिजिटल तिजोरी* 🏦",
-        "wallet_details": "💰 *नकद शेष:* `₹{balance}`\n🪙 *सिक्का शेष:* `{coins}`\n📊 *कुल अर्जित:* `₹{total_earned}`\n🔥 *वर्तमान स्ट्रीक:* `{streak} दिन`\n👥 *रेफ़रल:* `{referrals}`\n\n🏅 *वर्तमान स्तर:* {level_emoji} *{level_name}*",
-        "next_level_progress": "📈 *अगले स्तर की प्रगति:*\n`{progress_bar}`",
-        "streak_progress": "*स्ट्रीक प्रगति:*\n{streak_bar}",
-        "upi_id": "💳 *UPI आईडी:* `{upi}`",
-        "withdrawal_needed": "💡 _आप अपनी पहली निकासी से सिर्फ *₹{needed}* दूर हैं!_",
-        "claim_success": "💰 मूल इनाम: *₹{base_reward}*\n🔥 स्ट्रीक बोनस: *+₹{streak_bonus}* अतिरिक्त!\n💎 कुल अर्जित: *₹{total_reward}*\n📊 नई शेष राशि: *₹{balance}*\n⚡ वर्तमान स्ट्रीक: *{streak_count} दिन*\n🏅 स्तर: {level_emoji} *{level_name}*",
-        "claim_wait": "⏳ अगला बोनस *{hours} घंटे {minutes} मिनट* में तैयार हो जाएगा।",
-        "lang_select": "🌐 कृपया अपनी भाषा चुनें:",
-        "lang_selected": "✅ भाषा {lang_name} पर सेट हो गई है!",
-    },
-      'ru': {
-        "welcome_new": "🌟 *Добро пожаловать в EarnBot, {first_name}!* 🌟\n\n🎯 Ваше приключение по заработку начинается сейчас!\n🏅 Текущий уровень: {level_emoji} *{level_name}*\n\n💡 *Быстрый старт:*\n• 🎁 Получайте ежедневный бонус\n• ✨ Выполняйте простые задания\n• 💌 Приглашайте друзей за большие награды\n\n*{quote}*",
-        "welcome_back": "👋 *С возвращением, {first_name}!*\n\n🏅 Уровень: {level_emoji} *{level_name}*\n💰 Баланс: *₹{balance}*\n🪙 Монеты: *{coins}*\n\n*{quote}*",
-        "main_menu": "{lightning} *ГЛАВНОЕ МЕНЮ* {lightning}",
-        "wallet_title": "🏦 *ВАШ ЦИФРОВОЙ СЕЙФ* 🏦",
-        "wallet_details": "💰 *Баланс наличных:* `₹{balance}`\n🪙 *Баланс монет:* `{coins}`\n📊 *Всего заработано:* `₹{total_earned}`\n🔥 *Текущая серия:* `{streak} дней`\n👥 *Рефералы:* `{referrals}`\n\n🏅 *Текущий уровень:* {level_emoji} *{level_name}*",
-        "next_level_progress": "📈 *Прогресс до следующего уровня:*\n`{progress_bar}`",
-        "streak_progress": "*Прогресс серии:*\n{streak_bar}",
-        "upi_id": "💳 *UPI ID:* `{upi}`",
-        "withdrawal_needed": "💡 _Вам не хватает всего *₹{needed}* до первого вывода!_",
-        "claim_success": "💰 Базовая награда: *₹{base_reward}*\n🔥 Бонус за серию: *+₹{streak_bonus}* дополнительно!\n💎 Всего заработано: *₹{total_reward}*\n📊 Новый баланс: *₹{balance}*\n⚡ Текущая серия: *{streak_count} дней*\n🏅 Уровень: {level_emoji} *{level_name}*",
-        "claim_wait": "⏳ Следующий бонус будет готов через *{hours} ч {minutes} м*.",
-        "lang_select": "🌐 Пожалуйста, выберите ваш язык:",
-        "lang_selected": "✅ Язык установлен на {lang_name}!",
-    }
-}
-
-
-def get_text(key: str, lang: str = 'en') -> str:
-    """Fetches a string from the language dictionary with a fallback to English."""
-    return LANGUAGES.get(lang, {}).get(key, LANGUAGES['en'].get(key, f"<{key}>"))
 
 
 # --- LOGGING SETUP ---
@@ -348,20 +281,20 @@ async def show_error_animation(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.debug(f"Error animation error: {e}")
         await safe_send_message(update, context, f"{EMOJIS['error']} {message}", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
-# --- ENHANCED DATA HANDLING ---
+# --- ENHANCED DATA HANDLING (In-memory cache with periodic saves) ---
 def load_data(filepath: str) -> Dict[str, Any]:
     """Safely loads data from a JSON file with backup recovery."""
     if not os.path.exists(filepath):
-        # For settings, create a default file if it's missing
         if filepath == SETTINGS_FILE:
-            save_data({"coin_convert_enabled": False}, SETTINGS_FILE)
-            return {"coin_convert_enabled": False}
+            default_settings = {"coin_convert_enabled": False}
+            save_data(default_settings, SETTINGS_FILE)
+            return default_settings
         return {}
     
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            return data if isinstance(data, dict) else {}
+            return data if isinstance(data, dict) or isinstance(data, list) else {} # Added list support for safety
     except (json.JSONDecodeError, IOError, UnicodeDecodeError) as e:
         logger.error(f"Error loading {filepath}: {e}")
         backup_file = f"{filepath}.backup"
@@ -374,7 +307,7 @@ def load_data(filepath: str) -> Dict[str, Any]:
                 logger.error(f"Backup also failed for {filepath}: {backup_e}")
         return {}
 
-def save_data(data: Dict[str, Any], filepath: str) -> bool:
+def save_data(data: Any, filepath: str) -> bool: # Changed type hint to Any for flexibility
     """Safely saves data with backup creation and validation."""
     try:
         if os.path.exists(filepath):
@@ -397,6 +330,23 @@ def save_data(data: Dict[str, Any], filepath: str) -> bool:
         logger.error(f"Critical error saving {filepath}: {e}")
         return False
 
+async def save_all_data(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Scheduled job to save all in-memory data to disk."""
+    if not context.bot_data:
+        return
+    logger.info("Running scheduled data save...")
+    
+    users_data = context.bot_data.get('users', {})
+    tasks_data = context.bot_data.get('tasks', {})
+    withdrawals_data = context.bot_data.get('withdrawals', {})
+    settings_data = context.bot_data.get('settings', {})
+    
+    save_data(users_data, USERS_FILE)
+    save_data(tasks_data, TASKS_FILE)
+    save_data(withdrawals_data, WITHDRAWALS_FILE)
+    save_data(settings_data, SETTINGS_FILE)
+    logger.info("Data saved successfully.")
+
 # --- CONVERSATION STATES ---
 (
     LINK_UPI, BROADCAST_MESSAGE, ASK_CHANNEL, ASK_REWARD, ASK_EXPIRY,
@@ -404,8 +354,9 @@ def save_data(data: Dict[str, Any], filepath: str) -> bool:
     # New States
     ASK_FEEDBACK,
     ASK_TASK_TYPE, ASK_QUIZ_QUESTION, ASK_QUIZ_ANSWER, ASK_SOCIAL_LINK,
-    GAME_GUESS_NUMBER, ASK_COIN_CONVERT
-) = range(15)
+    GAME_GUESS_NUMBER, ASK_COIN_CONVERT, ASK_CHANNEL_TITLE, ASK_CHANNEL_ID,
+    ADJUST_BALANCE_ID, ADJUST_BALANCE_CASH, ADJUST_BALANCE_COIN
+) = range(20)  # Update the range to include the new states
 
 
 # --- UTILITY FUNCTIONS ---
@@ -511,8 +462,7 @@ async def safe_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
             await context.bot.send_message(chat_id=chat_id, text=text, **kwargs)
         else:
             logger.warning("Could not determine chat_id to send message.")
-        return False
-        return True
+            return False
     except Forbidden:
         logger.warning(f"User {get_user_id(update)} blocked the bot")
         return False
@@ -533,7 +483,7 @@ async def safe_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
 # --- NEW: ACHIEVEMENT SYSTEM ---
 async def check_and_grant_achievements(user_id: str, context: ContextTypes.DEFAULT_TYPE):
     """Checks user stats against achievement criteria and grants new ones."""
-    users_data = load_data(USERS_FILE)
+    users_data = context.bot_data.get('users', {})
     user_data = users_data.get(user_id)
     if not user_data:
         return
@@ -571,8 +521,8 @@ async def check_and_grant_achievements(user_id: str, context: ContextTypes.DEFAU
                 except Exception as e:
                     logger.warning(f"Failed to send achievement notification to {user_id}: {e}")
 
-    save_data(users_data, USERS_FILE)
-
+    # No need to call save_data here, a background job will handle it
+    # This function is called after every major action, so a full save is not needed
 
 # --- ENHANCED USER COMMANDS ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -586,7 +536,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             return
             
         user_id = str(user.id)
-        users_data = load_data(USERS_FILE)
+        users_data = context.bot_data.setdefault('users', {})
         is_new_user = user_id not in users_data
 
         if is_new_user:
@@ -606,7 +556,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 'level': "Starter",
                 'achievements': [],
                 'total_claims': 0,
-                'language': 'en' # Default language
             }
             
             if context.args:
@@ -679,34 +628,19 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                     
                     # Check achievements for the referrer
                     await check_and_grant_achievements(referrer_id, context)
-
-            save_data(users_data, USERS_FILE)
-
+        
         user_data = users_data.get(user_id, {})
-        user_lang = user_data.get('language', 'en')
         level_info = get_level_info(user_data.get('balance', 0))
         
         first_name = user.first_name or "Friend"
         if is_new_user and not context.args:
-            welcome_text = get_text('welcome_new', user_lang).format(
-                first_name=first_name,
-                level_emoji=level_info['emoji'],
-                level_name=level_info['name'],
-                quote=choice(QUOTES)
-            )
+            welcome_text = f"🌟 *Welcome to EarnBot, {first_name}!* 🌟\n\n🎯 Your earning adventure begins now!\n🏅 Current Level: {level_info['emoji']} *{level_info['name']}*\n\n💡 *Quick Start:*\n• 🎁 Claim your daily bonus\n• ✨ Complete simple tasks\n• 💌 Invite friends for bigger rewards\n\n*{choice(QUOTES)}*"
             if loading_msg:
                 await show_success_animation(update, context, welcome_text, loading_msg.message_id)
             else:
                 await safe_send_message(update, context, welcome_text, parse_mode=ParseMode.MARKDOWN)
         elif not is_new_user:
-            welcome_text = get_text('welcome_back', user_lang).format(
-                first_name=first_name,
-                level_emoji=level_info['emoji'],
-                level_name=level_info['name'],
-                balance=format_number(user_data.get('balance', 0)),
-                coins=user_data.get('coin_balance', 0),
-                quote=choice(QUOTES)
-            )
+            welcome_text = f"👋 *Welcome back, {first_name}!* \n\n🏅 Level: {level_info['emoji']} *{level_info['name']}*\n💰 Balance: *₹{format_number(user_data.get('balance', 0))}*\n🪙 Coins: *{user_data.get('coin_balance', 0)}*\n\n*{choice(QUOTES)}*"
             if loading_msg:
                 try:
                     await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=loading_msg.message_id)
@@ -721,13 +655,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             [f"{EMOJIS['rocket']} Invite Friends", f"{EMOJIS['leaderboard']} Leaderboard"],
             ["📊 My Stats", f"{EMOJIS['achievement']} Achievements"],
             [f"{EMOJIS['diamond']} Set UPI", f"{EMOJIS['feedback']} Send Feedback"],
-            [f"{EMOJIS['language']} Language", "❓ Help & Guide"]
+            ["❓ Help & Guide"]
         ]
 
         # Add Coin Convert button only if enabled by admin
-        settings = load_data(SETTINGS_FILE)
+        settings = context.bot_data.get('settings', {})
         if settings.get('coin_convert_enabled', False):
-            # Find the row with "Send Feedback" and insert the button before it
             for row in keyboard:
                 if f"{EMOJIS['feedback']} Send Feedback" in row:
                     feedback_index = row.index(f"{EMOJIS['feedback']} Send Feedback")
@@ -743,7 +676,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             input_field_placeholder="Choose your action..."
         )
         
-        main_menu_text = get_text('main_menu', user_lang).format(lightning=EMOJIS['lightning'])
+        main_menu_text = f"{EMOJIS['lightning']} *MAIN MENU* {EMOJIS['lightning']}"
         await safe_send_message(
             update, context,
             main_menu_text, 
@@ -779,18 +712,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"{EMOJIS['feedback']} Send Feedback": feedback_start,
             f"{EMOJIS['diamond']} Set UPI": link_upi_start,
             "📊 My Stats": show_user_stats,
-            f"{EMOJIS['notify']} Notifications": notifications_menu,
-            f"{EMOJIS['language']} Language": language_command,
             f"{EMOJIS['convert']} Coin Convert": coin_convert_start,
-            "❓ Help & Guide": help_command
+            "❓ Help & Guide": help_command,
+            f"{EMOJIS['crown']} Admin Panel": admin_command,
+            "⬅️ Back to Main": start_command
+        }
+        
+        # Admin message handling
+        admin_map = {
+            "📤 Broadcast Text": broadcast_start,
+            "🖼️ Broadcast Image": broadcast_photo_start,
+            f"{EMOJIS['money']} Adjust User Balance": adjust_balance_start,
+            "📊 Detailed Stats": detailed_stats,
+            "👥 User List": view_users,
+            "💸 Withdrawal Requests": view_withdrawals,
+            "🔧 System Tools": system_tools,
+            f"{EMOJIS['airdrop']} Airdrop": airdrop_start,
+            "➕ Create Task": create_task_start,
+            "🗑️ Remove Task": remove_task_start,
+            "🧹 Clean Expired Tasks": clean_expired_tasks,
         }
 
-        if text in action_map:
+        if user_id == str(ADMIN_ID) and text in admin_map:
+            await show_typing(update, context)
+            await admin_map[text](update, context)
+        elif text.startswith(f"{EMOJIS['settings']} Coin Convert") and user_id == str(ADMIN_ID):
+            await show_typing(update, context)
+            await toggle_coin_convert(update, context)
+        elif text in action_map:
             await show_typing(update, context)
             await action_map[text](update, context)
-        elif text == f"{EMOJIS['crown']} Admin Panel" and user_id == str(ADMIN_ID):
-            await show_typing(update, context)
-            await admin_command(update, context)
         else:
             await safe_send_message(
                 update, context,
@@ -809,7 +760,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def notifications_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Shows notification settings menu."""
     user_id = get_user_id(update)
-    users_data = load_data(USERS_FILE)
+    users_data = context.bot_data.get('users', {})
     user_data = users_data.get(user_id)
 
     if not user_data:
@@ -866,12 +817,11 @@ async def toggle_notifications_callback(update: Update, context: ContextTypes.DE
     await query.answer()
 
     user_id = get_user_id(update)
-    users_data = load_data(USERS_FILE)
+    users_data = context.bot_data.get('users', {})
     
     if user_id in users_data:
         current_status = users_data[user_id].get('notifications_enabled', True)
         users_data[user_id]['notifications_enabled'] = not current_status
-        save_data(users_data, USERS_FILE)
         await notifications_menu(update, context)
     else:
         await query.edit_message_text("Could not find your data. Please use /start again.")
@@ -882,7 +832,7 @@ async def claim_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['claim'])
         
         user_id = get_user_id(update)
-        users_data = load_data(USERS_FILE)
+        users_data = context.bot_data.get('users', {})
         user = users_data.get(user_id)
 
         if not user:
@@ -891,7 +841,6 @@ async def claim_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await start_command(update, context)
             return
         
-        user_lang = user.get('language', 'en')
         now = datetime.now()
         last_claim_str = user.get('last_claim')
 
@@ -903,7 +852,7 @@ async def claim_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 time_left = timedelta(hours=24) - time_since_last_claim
                 hours, remainder = divmod(time_left.seconds, 3600)
                 minutes, _ = divmod(remainder, 60)
-                next_claim_msg = get_text('claim_wait', user_lang).format(hours=hours, minutes=minutes)
+                next_claim_msg = f"⏳ Next bonus is ready in *{hours}h {minutes}m*."
                 if loading_msg:
                     await show_error_animation(update, context, next_claim_msg, loading_msg.message_id)
                 return
@@ -931,8 +880,6 @@ async def claim_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         user['last_claim'] = now.isoformat()
         user['total_claims'] = user.get('total_claims', 0) + 1 # Increment total claims
         
-        save_data(users_data, USERS_FILE)
-        
         # Check for achievements after saving
         await check_and_grant_achievements(user_id, context)
 
@@ -956,15 +903,7 @@ async def claim_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         level_info = get_level_info(user['balance'])
         
-        reward_msg = get_text('claim_success', user_lang).format(
-            base_reward=format_number(base_reward),
-            streak_bonus=format_number(streak_bonus),
-            total_reward=format_number(total_reward),
-            balance=format_number(user['balance']),
-            streak_count=streak_count,
-            level_emoji=level_info['emoji'],
-            level_name=level_info['name']
-        )
+        reward_msg = f"💰 Base Reward: *₹{format_number(base_reward)}*\n🔥 Streak Bonus: *+₹{format_number(streak_bonus)}* extra!\n💎 Total Earned: *₹{format_number(total_reward)}*\n📊 New Balance: *₹{format_number(user['balance'])}*\n⚡ Current Streak: *{streak_count} days*\n🏅 Level: {level_info['emoji']} *{level_info['name']}*"
         
         # New Streak Progress Bar
         progress_bar, milestone_info = get_streak_progress_bar(streak_count)
@@ -983,7 +922,7 @@ async def my_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['wallet'])
         
         user_id = get_user_id(update)
-        users_data = load_data(USERS_FILE)
+        users_data = context.bot_data.get('users', {})
         user = users_data.get(user_id)
 
         if not user:
@@ -992,10 +931,9 @@ async def my_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await start_command(update, context)
             return
 
-        user_lang = user.get('language', 'en')
         balance = user.get('balance', 0.0)
         coin_balance = user.get('coin_balance', 0)
-        upi = user.get('upi', "Not Set")
+        upi = user.get('upi')
         total_earned = user.get('total_earned', 0.0)
         referrals = user.get('referrals', 0)
         streak = user.get('streak_count', 0)
@@ -1017,25 +955,17 @@ async def my_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             empty = 10 - filled
             progress_bar = f"{'█' * filled}{'░' * empty} {progress}%"
         
-        wallet_msg = get_text('wallet_title', user_lang) + "\n\n"
-        wallet_msg += get_text('wallet_details', user_lang).format(
-            balance=format_number(balance),
-            coins=f"{coin_balance:,}",
-            total_earned=format_number(total_earned),
-            streak=streak,
-            referrals=referrals,
-            level_emoji=level_info['emoji'],
-            level_name=level_info['name']
-        )
+        wallet_msg = "🏦 *YOUR DIGITAL VAULT* 🏦" + "\n\n"
+        wallet_msg += f"💰 *Cash Balance:* `₹{format_number(balance)}`\n🪙 *Coin Balance:* `{coin_balance}`\n📊 *Total Earned:* `₹{format_number(total_earned)}`\n🔥 *Current Streak:* `{streak} days`\n👥 *Referrals:* `{referrals}`\n\n🏅 *Current Level:* {level_info['emoji']} *{level_info['name']}*"
         
         if progress_bar:
-            wallet_msg += "\n" + get_text('next_level_progress', user_lang).format(progress_bar=progress_bar) + "\n\n"
+            wallet_msg += f"\n📈 *Next Level Progress:*\n`{progress_bar}`" + "\n\n"
 
         # New Streak Progress Bar
         streak_progress_bar, _ = get_streak_progress_bar(streak)
-        wallet_msg += get_text('streak_progress', user_lang).format(streak_bar=streak_progress_bar) + "\n\n"
+        wallet_msg += f"*Streak Progress:*\n{streak_progress_bar}" + "\n\n"
 
-        wallet_msg += get_text('upi_id', user_lang).format(upi=upi)
+        wallet_msg += f"💳 *UPI ID:* `{upi}`" if upi else f"💳 *UPI ID:* `Not Set`"
         
         keyboard = [
             [InlineKeyboardButton(f"{EMOJIS['gift']} Claim Daily", callback_data="quick_claim")],
@@ -1044,7 +974,7 @@ async def my_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         
         if balance < MIN_WITHDRAWAL:
             needed = MIN_WITHDRAWAL - balance
-            wallet_msg += "\n\n" + get_text('withdrawal_needed', user_lang).format(needed=format_number(needed))
+            wallet_msg += f"\n\n💡 _You're just *₹{format_number(needed)}* away from your first withdrawal!_"
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1063,7 +993,7 @@ async def show_user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['stats'])
         
         user_id = get_user_id(update)
-        users_data = load_data(USERS_FILE)
+        users_data = context.bot_data.get('users', {})
         user = users_data.get(user_id)
 
         if not user:
@@ -1114,7 +1044,7 @@ async def show_user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def link_upi_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         user_id = get_user_id(update)
-        users_data = load_data(USERS_FILE)
+        users_data = context.bot_data.get('users', {})
         user = users_data.get(user_id)
         
         current_upi = user.get('upi', 'None') if user else 'None'
@@ -1135,7 +1065,7 @@ async def link_upi_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             update, context, upi_msg,
             reply_markup=ReplyKeyboardRemove(),
             parse_mode=ParseMode.MARKDOWN,
-            force_new=True 
+            force_new=True  
         )
         return LINK_UPI
 
@@ -1167,25 +1097,22 @@ async def link_upi_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 await safe_send_message(update, context, error_msg, parse_mode=ParseMode.MARKDOWN)
             return LINK_UPI
 
-        users_data = load_data(USERS_FILE)
+        users_data = context.bot_data.get('users', {})
         if user_id in users_data:
             old_upi = users_data[user_id].get('upi', 'None')
             users_data[user_id]['upi'] = upi_address
             
-            if save_data(users_data, USERS_FILE):
-                success_msg = (
-                    f"✅ *UPI Successfully Updated!* ✅\n\n"
-                    f"Previous: `{old_upi}`\n"
-                    f"New UPI: `{upi_address}`\n\n"
-                    f"🎉 You can now withdraw funds when you reach ₹{MIN_WITHDRAWAL:.0f}!"
-                )
-                
-                if loading_msg:
-                    await show_success_animation(update, context, success_msg, loading_msg.message_id)
-                else:
-                    await safe_send_message(update, context, success_msg, parse_mode=ParseMode.MARKDOWN)
+            success_msg = (
+                f"✅ *UPI Successfully Updated!* ✅\n\n"
+                f"Previous: `{old_upi}`\n"
+                f"New UPI: `{upi_address}`\n\n"
+                f"🎉 You can now withdraw funds when you reach ₹{MIN_WITHDRAWAL:.0f}!"
+            )
+            
+            if loading_msg:
+                await show_success_animation(update, context, success_msg, loading_msg.message_id)
             else:
-                await show_error_animation(update, context, "Failed to save UPI. Please try again!", loading_msg.message_id if loading_msg else None)
+                await safe_send_message(update, context, success_msg, parse_mode=ParseMode.MARKDOWN)
         else:
             await show_error_animation(update, context, "User data not found. Please use /start first!", loading_msg.message_id if loading_msg else None)
 
@@ -1203,7 +1130,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['withdraw'])
         
         user_id = get_user_id(update)
-        users_data = load_data(USERS_FILE)
+        users_data = context.bot_data.get('users', {})
         user = users_data.get(user_id)
 
         if not user:
@@ -1215,7 +1142,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         balance = user.get('balance', 0.0)
         upi = user.get('upi')
 
-        if not upi or upi == "Not Set":
+        if not upi:
             no_upi_msg = (
                 f"⚠️ *UPI Required!*\n\n"
                 f"💳 Link your UPI ID first to withdraw funds.\n"
@@ -1238,7 +1165,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 f"💡 *Keep Going!*\n\n"
                 f"💰 Current Balance: *₹{format_number(balance)}*\n"
                 f"🎯 Minimum Required: *₹{MIN_WITHDRAWAL:.0f}*\n"
-                f"📉 _You need *₹{format_number(shortage)}* more to withdraw._\n\n"
+                f"📉 _You're just *₹{format_number(shortage)}* away from your first withdrawal._\n\n"
                 f"📊 *Withdrawal Progress:*\n`{progress_bar}` {progress}%\n\n"
                 f"🚀 *Fastest Ways to Earn:*\n"
                 f"  `•` {EMOJIS['rocket']} Invite friends (₹{REFERRAL_BONUS:.0f} each!)\n"
@@ -1254,7 +1181,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await show_error_animation(update, context, insufficient_msg, loading_msg.message_id, reply_markup=reply_markup)
             return
 
-        withdrawals_data = load_data(WITHDRAWALS_FILE)
+        withdrawals_data = context.bot_data.setdefault('withdrawals', {})
         request_id = f"req_{int(datetime.now().timestamp())}_{user_id}"
         
         withdrawal_request = {
@@ -1269,51 +1196,43 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         
         withdrawals_data[request_id] = withdrawal_request
         
-        if save_data(withdrawals_data, WITHDRAWALS_FILE):
-            user['balance'] = 0.0
-            save_data(users_data, USERS_FILE)
-            
-            success_msg = (
-                f"✅ *WITHDRAWAL SUBMITTED!* ✅\n\n"
-                f"💰 Amount: *₹{format_number(balance)}*\n"
-                f"💳 UPI: `{upi}`\n"
-                f"🆔 Request ID: `{request_id}`\n\n"
-                f"⏳ _Processing Time: 24-48 hours_\n"
-                f"📱 _You'll receive a confirmation soon!_\n\n"
-                f"🎉 Keep earning while you wait!"
-            )
-            
-            if loading_msg:
-                await show_success_animation(update, context, success_msg, loading_msg.message_id)
-            else:
-                await safe_send_message(update, context, success_msg, parse_mode=ParseMode.MARKDOWN, force_new=True)
-            
-            username_safe = escape_markdown(user.get('username', 'N/A'))
-            first_name_safe = escape_markdown(user.get('first_name', 'User'))
-            admin_msg = (
-                f"💸 *NEW WITHDRAWAL REQUEST* 💸\n\n"
-                f"👤 User: {first_name_safe} (@{username_safe})\n"
-                f"🆔 ID: `{user_id}`\n"
-                f"💰 Amount: *₹{format_number(balance)}*\n"
-                f"💳 UPI: `{upi}`\n"
-                f"📅 Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-                f"🔢 Request ID: `{request_id}`"
-            )
-            
-            try:
-                await context.bot.send_message(
-                    chat_id=ADMIN_ID,
-                    text=admin_msg,
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            except Exception as e:
-                logger.error(f"Failed to notify admin about withdrawal: {e}")
+        user['balance'] = 0.0
+        
+        success_msg = (
+            f"✅ *WITHDRAWAL SUBMITTED!* ✅\n\n"
+            f"💰 Amount: *₹{format_number(balance)}*\n"
+            f"💳 UPI: `{upi}`\n"
+            f"🆔 Request ID: `{request_id}`\n\n"
+            f"⏳ _Processing Time: 24-48 hours_\n"
+            f"📱 _You'll receive a confirmation soon!_\n\n"
+            f"🎉 Keep earning while you wait!"
+        )
+        
+        if loading_msg:
+            await show_success_animation(update, context, success_msg, loading_msg.message_id)
         else:
-            await show_error_animation(
-                update, context,
-                "Withdrawal failed to process. Please try again!",
-                loading_msg.message_id if loading_msg else None
+            await safe_send_message(update, context, success_msg, parse_mode=ParseMode.MARKDOWN, force_new=True)
+        
+        username_safe = escape_markdown(user.get('username', 'N/A'))
+        first_name_safe = escape_markdown(user.get('first_name', 'User'))
+        admin_msg = (
+            f"💸 *NEW WITHDRAWAL REQUEST* 💸\n\n"
+            f"👤 User: {first_name_safe} (@{username_safe})\n"
+            f"🆔 ID: `{user_id}`\n"
+            f"💰 Amount: *₹{format_number(balance)}*\n"
+            f"💳 UPI: `{upi}`\n"
+            f"📅 Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+            f"🔢 Request ID: `{request_id}`"
+        )
+        
+        try:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=admin_msg,
+                parse_mode=ParseMode.MARKDOWN
             )
+        except Exception as e:
+            logger.error(f"Failed to notify admin about withdrawal: {e}")
 
     except Exception as e:
         logger.error(f"Error in withdraw: {e}")
@@ -1329,7 +1248,7 @@ async def refer_command(update: Update, context: ContextTypes.DEFAULT_TYPE, forc
         
         user_id = get_user_id(update)
         bot_username = (await context.bot.get_me()).username
-        users_data = load_data(USERS_FILE)
+        users_data = context.bot_data.get('users', {})
         user_data = users_data.get(user_id, {})
         referral_count = user_data.get('referrals', 0)
         
@@ -1432,8 +1351,8 @@ async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE, force_n
         loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['tasks'])
         
         user_id = get_user_id(update)
-        tasks_data = load_data(TASKS_FILE)
-        users_data = load_data(USERS_FILE)
+        tasks_data = context.bot_data.get('tasks', {})
+        users_data = context.bot_data.get('users', {})
         user = users_data.get(user_id)
         
         if not user:
@@ -1444,23 +1363,31 @@ async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE, force_n
         
         now = datetime.now()
         
-        active_tasks = {}
+        available_tasks = []
         for tid, task in tasks_data.items():
-            if task.get('status') != 'active':
-                continue
-            
-            expiry_str = task.get('expiry_date')
-            if expiry_str:
-                try:
+            try:
+                if task.get('status') != 'active':
+                    continue
+                
+                expiry_str = task.get('expiry_date')
+                if expiry_str:
                     expiry_date = datetime.fromisoformat(expiry_str)
                     if expiry_date <= now:
                         continue
-                except ValueError:
+                
+                # Check if user has already completed the task
+                if tid in user.get('completed_tasks', []):
                     continue
-            
-            active_tasks[tid] = task
 
-        if not active_tasks:
+                available_tasks.append((tid, task))
+            except KeyError as e:
+                logger.error(f"Skipping malformed task with ID {tid}: Missing key {e}")
+                continue
+            except ValueError:
+                logger.error(f"Skipping task with ID {tid}: Invalid expiry date format")
+                continue
+
+        if not available_tasks:
             no_tasks_msg = (
                 f"🎉 *ALL TASKS COMPLETED!* 🎉\n\n"
                 f"👏 Amazing work! You've cleared all available tasks.\n\n"
@@ -1480,9 +1407,6 @@ async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE, force_n
             await show_success_animation(update, context, no_tasks_msg, loading_msg.message_id, reply_markup=reply_markup)
             return
 
-        completed_tasks = set(user.get('completed_tasks', []))
-        available_count = 0
-        
         if loading_msg:
             try:
                 await context.bot.delete_message(
@@ -1492,12 +1416,8 @@ async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE, force_n
             except:
                 pass
         
-        for task_id, task in active_tasks.items():
-            if task_id in completed_tasks:
-                continue
-            
-            available_count += 1
-            reward = task['reward']
+        for task_id, task in available_tasks:
+            reward = task.get('reward', 0)
             task_type = task.get('type', 'join')
             
             expiry_str = task.get('expiry_date')
@@ -1516,10 +1436,27 @@ async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE, force_n
 
             # --- DYNAMIC TASK DISPLAY ---
             if task_type == 'join':
-                channel_username = task['channel_username']
+                channel_identifier = task.get('channel_username', '')
+                channel_title = task.get('channel_title', 'Unknown Channel')
+                
+                if task.get('is_private', False):
+                    join_url = channel_identifier
+                    verify_data = f"verify:{task_id}:{task.get('channel_hash', '')}"
+                else:
+                    if isinstance(channel_identifier, str) and channel_identifier.startswith("https://t.me/+"):
+                        join_url = channel_identifier
+                        verify_data = f"verify:{task_id}:{channel_identifier}"
+                    elif isinstance(channel_identifier, str):
+                        join_url = f"https://t.me/{channel_identifier.replace('@','')}"
+                        verify_data = f"verify:{task_id}:{channel_identifier}"
+                    else: # Handle cases where channel_identifier is an int (from old tasks)
+                        join_url = f"https://t.me/c/{str(channel_identifier).lstrip('-100')}"
+                        verify_data = f"verify:{task_id}:{channel_identifier}"
+                        logger.warning(f"Found non-string channel_identifier in task {task_id}. Assuming it's an old chat ID.")
+
                 task_msg = (
                     f"{EMOJIS['magic']} *NEW JOIN TASK AVAILABLE* ✨\n\n"
-                    f"📺 Channel: `{channel_username}`\n"
+                    f"📺 Channel: `{channel_title}`\n"
                     f"🪙 Reward: *{reward} Coins*\n"
                     f"{time_left_str}\n\n"
                     f"📝 *Instructions:*\n"
@@ -1528,8 +1465,8 @@ async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE, force_n
                     f"3️⃣ Click 'Verify' to claim reward\n\n"
                 )
                 keyboard = [
-                    [InlineKeyboardButton("1️⃣ Join Channel 🔗", url=f"https://t.me/{channel_username.replace('@','')}")],
-                    [InlineKeyboardButton("2️⃣ Verify Membership ✅", callback_data=f"verify:{task_id}:{channel_username}")]
+                    [InlineKeyboardButton("1️⃣ Join Channel 🔗", url=join_url)],
+                    [InlineKeyboardButton("2️⃣ Verify Membership ✅", callback_data=verify_data)]
                 ]
             
             elif task_type == 'quiz':
@@ -1591,18 +1528,6 @@ async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE, force_n
                 force_new=True 
             )
 
-        if available_count == 0:
-            completed_msg = (
-                f"🏆 *ALL TASKS COMPLETED!* 🏆\n\n"
-                f"🎉 You've completed all {len(active_tasks)} available tasks!\n"
-                f"💰 Keep earning through:\n"
-                f"• {EMOJIS['gift']} Daily bonuses\n"
-                f"• {EMOJIS['rocket']} Friend referrals\n\n"
-                f"🔔 We'll notify you when new tasks arrive!"
-            )
-            
-            await safe_send_message(update, context, completed_msg, parse_mode=ParseMode.MARKDOWN, force_new=force_new)
-
     except Exception as e:
         logger.error(f"Error in show_tasks: {e}")
         await show_error_animation(
@@ -1625,10 +1550,10 @@ async def verify_membership_callback(update: Update, context: ContextTypes.DEFAU
             await show_error_animation(update, context, "Invalid task data. Please try again.", loading_msg.message_id if loading_msg else None)
             return
         
-        _, task_id, channel_username = callback_parts
+        _, task_id, channel_identifier = callback_parts
 
-        users_data = load_data(USERS_FILE)
-        tasks_data = load_data(TASKS_FILE)
+        users_data = context.bot_data.get('users', {})
+        tasks_data = context.bot_data.get('tasks', {})
         
         if user_id not in users_data:
             await show_error_animation(update, context, "User data not found. Please use /start first.", loading_msg.message_id if loading_msg else None)
@@ -1654,14 +1579,20 @@ async def verify_membership_callback(update: Update, context: ContextTypes.DEFAU
             return
 
         try:
-            member = await context.bot.get_chat_member(chat_id=channel_username, user_id=user_id)
-            
-            if member.status in ['member', 'administrator', 'creator']:
-                reward = task['reward']
-                user['coin_balance'] = user.get('coin_balance', 0) + reward
-                user.setdefault('completed_tasks', []).append(task_id)
+            if task.get('is_private', False):
+                channel_id = task.get('channel_id')
+                if not channel_id:
+                    error_text = "Cannot verify this private channel. Missing channel ID."
+                    await show_error_animation(update, context, error_text, loading_msg.message_id if loading_msg else None)
+                    return
+                    
+                member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
                 
-                if save_data(users_data, USERS_FILE):
+                if member.status in ['member', 'administrator', 'creator']:
+                    reward = task['reward']
+                    user['coin_balance'] = user.get('coin_balance', 0) + reward
+                    user.setdefault('completed_tasks', []).append(task_id)
+                    
                     success_msg = (
                         f"✅ Membership verified!\n"
                         f"🪙 Earned: *{reward} Coins*\n"
@@ -1669,28 +1600,55 @@ async def verify_membership_callback(update: Update, context: ContextTypes.DEFAU
                         f"🚀 Keep completing tasks to earn more!"
                     )
                     
-                    await show_success_animation(update, context, success_msg, loading_msg.message_id)
+                    await show_success_animation(update, context, success_msg, loading_msg.message_id if loading_msg else None)
                     await check_and_grant_achievements(user_id, context)
                 else:
-                    await show_error_animation(update, context, "Failed to save progress. Please try again!", loading_msg.message_id if loading_msg else None)
+                    not_member_msg = (
+                        f"❌ *Membership Not Found!*\n\n"
+                        f"Please make sure you:\n"
+                        f"1️⃣ Clicked 'Join Channel'\n"
+                        f"2️⃣ Actually joined the channel\n"
+                        f"3️⃣ Didn't immediately leave\n\n"
+                        f"💡 Try joining again, then click verify!"
+                    )
+                    
+                    await show_error_animation(update, context, not_member_msg, loading_msg.message_id if loading_msg else None)
+                    
             else:
-                not_member_msg = (
-                    f"❌ *Membership Not Found!*\n\n"
-                    f"Please make sure you:\n"
-                    f"1️⃣ Clicked 'Join Channel'\n"
-                    f"2️⃣ Actually joined the channel\n"
-                    f"3️⃣ Didn't immediately leave\n\n"
-                    f"💡 Try joining again, then click verify!"
-                )
+                member = await context.bot.get_chat_member(chat_id=channel_identifier, user_id=user_id)
                 
-                await show_error_animation(update, context, not_member_msg, loading_msg.message_id)
+                if member.status in ['member', 'administrator', 'creator']:
+                    reward = task['reward']
+                    user['coin_balance'] = user.get('coin_balance', 0) + reward
+                    user.setdefault('completed_tasks', []).append(task_id)
+                    
+                    success_msg = (
+                        f"✅ Membership verified!\n"
+                        f"🪙 Earned: *{reward} Coins*\n"
+                        f"💰 New Coin Balance: *{user['coin_balance']} Coins*\n\n"
+                        f"🚀 Keep completing tasks to earn more!"
+                    )
+                    
+                    await show_success_animation(update, context, success_msg, loading_msg.message_id if loading_msg else None)
+                    await check_and_grant_achievements(user_id, context)
+                else:
+                    not_member_msg = (
+                        f"❌ *Membership Not Found!*\n\n"
+                        f"Please make sure you:\n"
+                        f"1️⃣ Clicked 'Join Channel'\n"
+                        f"2️⃣ Actually joined the channel\n"
+                        f"3️⃣ Didn't immediately leave\n\n"
+                        f"💡 Try joining again, then click verify!"
+                    )
+                    
+                    await show_error_animation(update, context, not_member_msg, loading_msg.message_id if loading_msg else None)
 
         except BadRequest as e:
             error_msg = e.message.lower()
             if any(phrase in error_msg for phrase in ["user not found", "member not found", "user_not_participant"]):
                 error_text = (
                     f"❌ *Verification Failed!*\n\n"
-                    f"You haven't joined `{channel_username}` yet.\n"
+                    f"You haven't joined yet.\n"
                     f"Please join the channel first, then click verify!"
                 )
                 await show_error_animation(update, context, error_text, loading_msg.message_id if loading_msg else None)
@@ -1698,7 +1656,7 @@ async def verify_membership_callback(update: Update, context: ContextTypes.DEFAU
                 error_text = "This channel may no longer exist or be private."
                 await show_error_animation(update, context, error_text, loading_msg.message_id if loading_msg else None)
             else:
-                logger.error(f"Verification error for {channel_username}: {e}")
+                logger.error(f"Verification error for {channel_identifier}: {e}")
                 error_text = "Cannot check this task right now. Admin has been notified."
                 await show_error_animation(update, context, error_text, loading_msg.message_id if loading_msg else None)
 
@@ -1785,14 +1743,14 @@ async def leaderboard_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer("Calculating ranks...")
     
-    leaderboard_type = query.data.split('_', 1)[1]
-    
-    if leaderboard_type == "back":
+    if query.data == "lb_back":
         await start_command(update, context)
         await query.delete_message()
         return
-
-    users_data = load_data(USERS_FILE)
+        
+    leaderboard_type = query.data.split('_', 1)[1]
+    
+    users_data = context.bot_data.get('users', {})
     
     if not users_data:
         await query.edit_message_text("No users to rank yet!")
@@ -1853,7 +1811,7 @@ async def show_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     try:
         loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['achievements'])
         user_id = get_user_id(update)
-        users_data = load_data(USERS_FILE)
+        users_data = context.bot_data.get('users', {})
         user_data = users_data.get(user_id)
 
         if not user_data:
@@ -1917,17 +1875,18 @@ async def feedback_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
         admin_caption = (
             f"📝 *New Feedback Received*\n\n"
-            f"👤 *From:* {user.first_name or 'N/A'} (@{user.username or 'N/A'})\n"
+            f"👤 *From:* {escape_markdown(user.first_name or 'N/A')} (@{escape_markdown(user.username or 'N/A')})\n"
             f"🆔 *User ID:* `{user.id}`"
         )
-
+        
+        message_sent = False
         if update.message.photo:
             photo_id = update.message.photo[-1].file_id
             user_caption = update.message.caption or ""
             
             # Add user's caption to the admin message if it exists
             if user_caption:
-                admin_caption += f"\n\n✉️ *Message:*\n{user_caption}"
+                admin_caption += f"\n\n✉️ *Message:*\n{escape_markdown(user_caption)}"
 
             await context.bot.send_photo(
                 chat_id=ADMIN_ID,
@@ -1935,27 +1894,27 @@ async def feedback_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 caption=admin_caption,
                 parse_mode=ParseMode.MARKDOWN
             )
+            message_sent = True
         elif update.message.text:
             user_feedback = update.message.text
-            admin_message = admin_caption + f"\n\n✉️ *Message:*\n\n{user_feedback}"
+            admin_message = admin_caption + f"\n\n✉️ *Message:*\n\n{escape_markdown(user_feedback)}"
             await context.bot.send_message(
                 chat_id=ADMIN_ID,
                 text=admin_message,
                 parse_mode=ParseMode.MARKDOWN
             )
+            message_sent = True
         else:
-            # Should not happen with the filter, but good to have a fallback
             await show_error_animation(update, context, "Unsupported feedback format. Please send text or a photo with a caption.", loading_msg.message_id)
-            await start_command(update, context)
-            return ConversationHandler.END
 
-        # Confirm to user
-        confirmation_msg = (
-            f"✅ *Feedback Sent!* ✅\n\n"
-            f"Thank you for your message! The admin has received it and will review it soon.\n\n"
-            f"Your input helps make this bot better for everyone! ✨"
-        )
-        await show_success_animation(update, context, confirmation_msg, loading_msg.message_id)
+        if message_sent:
+            # Confirm to user
+            confirmation_msg = (
+                f"✅ *Feedback Sent!* ✅\n\n"
+                f"Thank you for your message! The admin has received it and will review it soon.\n\n"
+                f"Your input helps make this bot better for everyone! ✨"
+            )
+            await show_success_animation(update, context, confirmation_msg, loading_msg.message_id)
 
     except Exception as e:
         logger.error(f"Error in feedback_receive: {e}")
@@ -1973,7 +1932,7 @@ async def send_single_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
     first_name = job.data['first_name']
     logger.info(f"Running single reminder job for user {user_id}")
 
-    users_data = load_data(USERS_FILE)
+    users_data = context.bot_data.get('users', {})
     user_data = users_data.get(str(user_id))
 
     if not user_data or not user_data.get('notifications_enabled', True):
@@ -2000,12 +1959,11 @@ async def send_single_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
             text=reminder_message,
             reply_markup=reply_markup
         )
-        logger.info(f"Sent single reminder to {user_id}")
     except Forbidden:
         logger.warning(f"User {user_id} has blocked the bot. Disabling notifications for them.")
         if user_data:
             users_data[str(user_id)]['notifications_enabled'] = False
-            save_data(users_data, USERS_FILE)
+            # Data is saved periodically, so no need for an immediate save here
     except Exception as e:
         logger.error(f"Failed to send single reminder to {user_id}: {e}")
 
@@ -2037,10 +1995,10 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
         loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin'])
         
-        users_data = load_data(USERS_FILE)
-        tasks_data = load_data(TASKS_FILE)
-        withdrawals_data = load_data(WITHDRAWALS_FILE)
-        settings = load_data(SETTINGS_FILE)
+        users_data = context.bot_data.get('users', {})
+        tasks_data = context.bot_data.get('tasks', {})
+        withdrawals_data = context.bot_data.get('withdrawals', {})
+        settings = context.bot_data.get('settings', {})
         
         total_users = len(users_data)
         active_tasks = len([t for t in tasks_data.values() if t.get('status') == 'active'])
@@ -2067,7 +2025,8 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             ["🗑️ Remove Task", "📊 Detailed Stats"],
             ["👥 User List", "💸 Withdrawal Requests"],
             [convert_button_text, "🔧 System Tools"],
-            ["🧹 Clean Expired Tasks", "⬅️ Back to Main"]
+            [f"{EMOJIS['money']} Adjust User Balance", "🧹 Clean Expired Tasks"],
+            ["⬅️ Back to Main"]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         
@@ -2077,49 +2036,13 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.error(f"Error in admin_command: {e}")
         await show_error_animation(update, context, "Admin panel error!")
 
-async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        if get_user_id(update) != str(ADMIN_ID):
-            return
-        
-        if is_rate_limited(str(ADMIN_ID)): # Admin can also be rate limited
-            return
-
-        text = update.message.text
-        
-        action_map = {
-            "📤 Broadcast Text": broadcast_start,
-            "🖼️ Broadcast Image": broadcast_photo_start,
-            "📊 Detailed Stats": detailed_stats,
-            "👥 User List": view_users,
-            "💸 Withdrawal Requests": view_withdrawals,
-            "🔧 System Tools": system_tools,
-            f"{EMOJIS['airdrop']} Airdrop": airdrop_start,
-            "➕ Create Task": create_task_start,
-            "🗑️ Remove Task": remove_task_start,
-            "🧹 Clean Expired Tasks": clean_expired_tasks,
-            "⬅️ Back to Main": start_command
-        }
-        
-        if text.startswith(f"{EMOJIS['settings']} Coin Convert"):
-            await toggle_coin_convert(update, context)
-        elif text in action_map:
-            await show_typing(update, context)
-            await action_map[text](update, context)
-        else:
-            await handle_message(update, context)
-
-    except Exception as e:
-        logger.error(f"Error in handle_admin_message: {e}")
-        await show_error_animation(update, context, "Admin action failed!")
-
 async def detailed_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_stats'])
         
-        users_data = load_data(USERS_FILE)
-        tasks_data = load_data(TASKS_FILE)
-        withdrawals_data = load_data(WITHDRAWALS_FILE)
+        users_data = context.bot_data.get('users', {})
+        tasks_data = context.bot_data.get('tasks', {})
+        withdrawals_data = context.bot_data.get('withdrawals', {})
         
         total_users = len(users_data)
         total_balance = sum(user.get('balance', 0) for user in users_data.values())
@@ -2222,7 +2145,7 @@ async def view_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     try:
         loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_users'])
         
-        users_data = load_data(USERS_FILE)
+        users_data = context.bot_data.get('users', {})
         if not users_data:
             await show_error_animation(update, context, "No users have joined yet.", loading_msg.message_id if loading_msg else None)
             return
@@ -2245,9 +2168,9 @@ async def view_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             
             user_info = (
                 f"{i}. {first_name} (@{username})\n"
-                f"    💰 ₹{format_number(balance)} | 🪙 {coins} | 👥 {referrals}\n"
-                f"    🏅 {level} | ID: `{user_id}`\n"
-                f"    ─────────────────────\n"
+                f"       💰 ₹{format_number(balance)} | 🪙 {coins} | 👥 {referrals}\n"
+                f"       🏅 {level} | ID: `{user_id}`\n"
+                f"       ─────────────────────\n"
             )
             
             if len(''.join(message_parts) + user_info) > 4000:
@@ -2297,7 +2220,7 @@ async def view_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             await context.bot.send_document(
                 chat_id=update.effective_chat.id,
                 document=open(filename, 'rb'),
-                caption=f"📊 Complete user list ({len(users_data)} users)"
+                caption=f"📊 Full user data export containing {len(users_data)} users."
             )
             os.remove(filename)
         else:
@@ -2311,7 +2234,7 @@ async def view_withdrawals(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     try:
         loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_withdrawals'])
         
-        withdrawals_data = load_data(WITHDRAWALS_FILE)
+        withdrawals_data = context.bot_data.get('withdrawals', {})
         pending_requests = [(req_id, req) for req_id, req in withdrawals_data.items() 
                             if req.get('status') == 'pending']
         
@@ -2320,8 +2243,8 @@ async def view_withdrawals(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             return
 
         withdrawal_msg = f"💸 *PENDING WITHDRAWALS* ({len(pending_requests)})\n\n"
-        total_pending = 0
         
+        keyboard = []
         for i, (req_id, req) in enumerate(pending_requests[:10], 1):
             username = escape_markdown(req.get('username', 'N/A'))
             first_name = escape_markdown(req.get('first_name', 'User'))
@@ -2335,26 +2258,22 @@ async def view_withdrawals(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             except:
                 time_str = 'Unknown'
             
-            total_pending += amount
-            
             withdrawal_msg += (
                 f"{i}. {first_name} (@{username})\n"
-                f"    💰 Amount: ₹{format_number(amount)}\n"
-                f"    💳 UPI: `{upi}`\n"
-                f"    📅 Time: {time_str}\n"
-                f"    🆔 ID: `{req_id}`\n"
-                f"    ─────────────────\n"
+                f"       💰 Amount: ₹{format_number(amount)}\n"
+                f"       💳 UPI: `{upi}`\n"
+                f"       📅 Time: {time_str}\n"
+                f"       🆔 ID: `{req_id}`\n"
+                f"       ─────────────────\n"
             )
-        
+
+            # Add a "Mark Paid" button for each request
+            keyboard.append([InlineKeyboardButton(f"✅ Mark Paid for {first_name}", callback_data=f"mark_paid:{req_id}")])
+
         if len(pending_requests) > 10:
             withdrawal_msg += f"\n... and {len(pending_requests) - 10} more requests"
-        
-        withdrawal_msg += f"\n💰 *Total Pending: ₹{format_number(total_pending)}*"
-        
-        keyboard = [
-            [InlineKeyboardButton("✅ Mark as Paid", callback_data="mark_paid")],
-            [InlineKeyboardButton("📤 Export List", callback_data="export_withdrawals")]
-        ]
+
+        keyboard.append([InlineKeyboardButton("📤 Export List", callback_data="export_withdrawals")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await show_success_animation(update, context, withdrawal_msg, loading_msg.message_id, reply_markup=reply_markup)
@@ -2362,6 +2281,78 @@ async def view_withdrawals(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     except Exception as e:
         logger.error(f"Error in view_withdrawals: {e}")
         await show_error_animation(update, context, "Failed to load withdrawal requests!")
+
+async def mark_as_paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Marks a specific withdrawal request as paid."""
+    query = update.callback_query
+    await query.answer("Marking as paid...")
+    
+    loading_msg = await show_stylish_loading_animation(update, context, "Processing payment...")
+    
+    try:
+        _, request_id = query.data.split(':', 1)
+        withdrawals_data = context.bot_data.get('withdrawals', {})
+        request = withdrawals_data.get(request_id)
+
+        if not request:
+            await show_error_animation(update, context, "❌ Request not found or already processed.", loading_msg.message_id)
+            return
+
+        request['status'] = 'completed'
+        request['paid_at'] = datetime.now().isoformat()
+        
+        # Notify the user
+        try:
+            user_msg = (
+                f"✅ *PAYMENT SENT!* ✅\n\n"
+                f"💰 Amount: *₹{format_number(request['amount'])}*\n"
+                f"💳 UPI: `{request['upi']}`\n"
+                f"🎉 The payment for your withdrawal request has been successfully processed.\n\n"
+                f"Thank you for using our bot! Keep earning! ✨"
+            )
+            await context.bot.send_message(request['user_id'], user_msg, parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            logger.warning(f"Failed to notify user {request['user_id']} of paid withdrawal: {e}")
+
+        success_msg = f"✅ Withdrawal request `{request_id}` marked as paid."
+        await show_success_animation(update, context, success_msg, loading_msg.message_id)
+
+    except Exception as e:
+        logger.error(f"Error marking withdrawal as paid: {e}")
+        await show_error_animation(update, context, "Failed to mark withdrawal as paid.", loading_msg.message_id)
+    
+    await view_withdrawals(update, context)
+
+async def export_withdrawals_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Exports all pending withdrawal requests to a JSON file."""
+    query = update.callback_query
+    await query.answer("📤 Exporting pending withdrawals...")
+    
+    loading_msg = await show_stylish_loading_animation(update, context, "Exporting data")
+
+    try:
+        withdrawals_data = context.bot_data.get('withdrawals', {})
+        pending_requests = {req_id: req for req_id, req in withdrawals_data.items() if req.get('status') == 'pending'}
+
+        if not pending_requests:
+            await show_error_animation(update, context, "No pending withdrawal requests to export.", loading_msg.message_id)
+            return
+
+        filename = f"pending_withdrawals_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+        if save_data(pending_requests, filename):
+            await context.bot.send_document(
+                chat_id=update.effective_chat.id,
+                document=open(filename, 'rb'),
+                caption=f"📋 Exported {len(pending_requests)} pending withdrawal requests."
+            )
+            os.remove(filename)
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=loading_msg.message_id)
+        else:
+            await show_error_animation(update, context, "Failed to create export file.", loading_msg.message_id)
+    
+    except Exception as e:
+        logger.error(f"Error exporting withdrawals: {e}")
+        await show_error_animation(update, context, "Failed to export list.", loading_msg.message_id)
 
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
@@ -2392,7 +2383,7 @@ async def broadcast_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_broadcast'])
         
         message_to_broadcast = f"📢 *Message from Admin:*\n\n{update.message.text}"
-        users_data = load_data(USERS_FILE)
+        users_data = context.bot_data.get('users', {})
         total_users = len(users_data)
         
         if total_users == 0:
@@ -2431,32 +2422,15 @@ async def broadcast_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 )
                 sent_count += 1
                 
-                if i % 50 == 0 and loading_msg:
-                    progress = int((i / total_users) * 100)
-                    try:
-                        progress_text = (
-                            f"📡 *Broadcasting... {progress}%*\n\n"
-                            f"✅ Sent: {sent_count}\n"
-                            f"❌ Failed: {failed_count}"
-                        )
-                        await context.bot.edit_message_text(
-                            progress_text,
-                            chat_id=update.effective_chat.id,
-                            message_id=loading_msg.message_id,
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                    except Exception as e:
-                        logger.warning(f"Could not edit broadcast status message: {e}")
-                
-                if i % 30 == 0:
-                    await asyncio.sleep(1)
-                    
             except Forbidden:
                 blocked_count += 1
                 failed_count += 1
             except Exception as e:
                 logger.error(f"Failed to send broadcast to {user_id}: {e}")
                 failed_count += 1
+            
+            if i % 30 == 0:
+                await asyncio.sleep(1)
         
         final_msg = (
             f"✅ *BROADCAST COMPLETE!*\n\n"
@@ -2515,7 +2489,7 @@ async def broadcast_photo_receive(update: Update, context: ContextTypes.DEFAULT_
         if caption:
             caption = f"📢 *Message from Admin:*\n\n{caption}"
         
-        users_data = load_data(USERS_FILE)
+        users_data = context.bot_data.get('users', {})
         total_users = len(users_data)
         
         if total_users == 0:
@@ -2555,32 +2529,15 @@ async def broadcast_photo_receive(update: Update, context: ContextTypes.DEFAULT_
                 )
                 sent_count += 1
                 
-                if i % 30 == 0 and loading_msg:
-                    progress = int((i / total_users) * 100)
-                    try:
-                        progress_text = (
-                            f"📡 *Broadcasting... {progress}%*\n\n"
-                            f"✅ Sent: {sent_count}\n"
-                            f"❌ Failed: {failed_count}"
-                        )
-                        await context.bot.edit_message_text(
-                            progress_text,
-                            chat_id=update.effective_chat.id,
-                            message_id=loading_msg.message_id,
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                    except Exception as e:
-                        logger.warning(f"Could not edit broadcast status message: {e}")
-                
-                if i % 30 == 0:
-                    await asyncio.sleep(1)
-                    
             except Forbidden:
                 blocked_count += 1
                 failed_count += 1
             except Exception as e:
                 logger.error(f"Failed to send photo broadcast to {user_id}: {e}")
                 failed_count += 1
+            
+            if i % 30 == 0:
+                await asyncio.sleep(1)
         
         final_msg = (
             f"✅ *PHOTO BROADCAST COMPLETE!*\n\n"
@@ -2669,7 +2626,7 @@ async def airdrop_receive_coins(update: Update, context: ContextTypes.DEFAULT_TY
             await admin_command(update, context)
             return ConversationHandler.END
 
-        users_data = load_data(USERS_FILE)
+        users_data = context.bot_data.get('users', {})
         total_users = len(users_data)
         
         if total_users == 0:
@@ -2692,15 +2649,14 @@ async def airdrop_receive_coins(update: Update, context: ContextTypes.DEFAULT_TY
             
             try:
                 await context.bot.send_message(user_id, airdrop_notification, parse_mode=ParseMode.MARKDOWN)
-                sent_count += 1
             except Exception as e:
                 failed_count += 1
                 logger.warning(f"Failed to send airdrop notification to {user_id}: {e}")
+            else:
+                sent_count += 1
             
             if i % 30 == 0:
                 await asyncio.sleep(1)
-
-        save_data(users_data, USERS_FILE)
         
         final_msg = (
             f"✅ *AIRDROP COMPLETE!*\n\n"
@@ -2749,58 +2705,204 @@ async def create_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await show_error_animation(update, context, "Task creation setup failed!")
         return ConversationHandler.END
 
+async def receive_task_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handles the admin's selection of a task type."""
+    task_type_text = update.message.text
+    
+    if f"{EMOJIS['magic']} Join Channel" in task_type_text:
+        context.user_data['task_type'] = 'join'
+        await update.message.reply_text(
+            "Great! Now, send the channel username (e.g., `@telegram`), a private invite link (e.g., `https://t.me/+...`), or the private invite hash (e.g., `+<invite_hash>`). The bot *must* be an admin in the channel to verify users.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return ASK_CHANNEL
+        
+    elif f"{EMOJIS['quiz']} Quiz" in task_type_text:
+        context.user_data['task_type'] = 'quiz'
+        await update.message.reply_text(
+            "Let's create a quiz! First, what is the question?",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return ASK_QUIZ_QUESTION
+        
+    elif f"{EMOJIS['social']} Social Media" in task_type_text:
+        context.user_data['task_type'] = 'social'
+        await update.message.reply_text(
+            "Social media task! Please send the full link for the user to visit (e.g., `https://twitter.com/user/status/123`).",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return ASK_SOCIAL_LINK
+
+    elif f"{EMOJIS['game']} Mini-Game" in task_type_text:
+        context.user_data['task_type'] = 'game'
+        # For the number guessing game, we can go straight to asking for the reward
+        await update.message.reply_text(
+            "Game time! The 'Guess the Number' game is ready. How many coins should users earn for winning? (Max 5000 coins)",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return ASK_REWARD
+        
+    else:
+        await update.message.reply_text("Invalid selection. Please choose a task type from the buttons.")
+        return ASK_TASK_TYPE
+
 async def receive_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Receives channel information (username or invite link) and validates it.
+    """
     try:
         loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_task_create'])
         
-        channel = update.message.text.strip()
-        
-        if not channel.startswith('@'):
-            await show_error_animation(
-                update, context,
-                "Channel username must start with '@'\n\nExample: `@telegram`\n\nPlease try again:",
+        channel_input = update.message.text.strip()
+        channel_identifier = None
+
+        if channel_input.startswith('+') or ('t.me/+' in channel_input):
+            if channel_input.startswith('+'):
+                invite_hash = channel_input
+                full_invite_link = f"https://t.me/{invite_hash}"
+            else:
+                full_invite_link = channel_input
+                invite_hash = full_invite_link.split('/')[-1]
+            
+            context.user_data['task_channel'] = full_invite_link
+            context.user_data['channel_hash'] = invite_hash
+            context.user_data['is_private_channel'] = True
+            
+            await show_success_animation(
+                update, context, 
+                "✅ Private channel detected!\n\nPlease enter the channel's numeric ID (ask the channel owner for this):",
                 loading_msg.message_id if loading_msg else None
             )
-            return ASK_CHANNEL
-        
-        try:
-            chat_info = await context.bot.get_chat(channel)
-            bot_member = await context.bot.get_chat_member(channel, context.bot.id)
+            return ASK_CHANNEL_ID
             
-            if bot_member.status not in ['administrator']:
+        else:
+            # Handle public channels as before
+            private_invite_link_match = re.match(r'https?://t\.me/\+([a-zA-Z0-9_-]+)', channel_input)
+            private_invite_hash_match = re.match(r'^\+([a-zA-Z0-9_-]+)$', channel_input)
+            
+            if private_invite_hash_match:
+                channel_identifier = channel_input
+            elif private_invite_link_match:
+                channel_identifier = channel_input
+            elif channel_input.lstrip('-').isdigit():
+                channel_identifier = int(channel_input)
+            elif channel_input.startswith('@'):
+                channel_identifier = channel_input
+            else:
+                channel_identifier = f"@{channel_input}"
+                
+            if not channel_identifier:
                 error_text = (
-                    f"Bot is not an admin in `{channel}`\n\nPlease:\n1. Add bot to the channel\n2. Make it an admin\n3. Try again\n\nOr send a different channel:"
+                    f"❌ *Invalid Channel Format!*\n\n"
+                    f"Please provide a valid channel username, a private invite link, or a private invite hash."
                 )
                 await show_error_animation(update, context, error_text, loading_msg.message_id if loading_msg else None)
                 return ASK_CHANNEL
-            
-            context.user_data['task_channel'] = channel
+
+            try:
+                chat_info = await context.bot.get_chat(channel_identifier)
+            except BadRequest as e:
+                logger.error(f"Error accessing channel {channel_input}: {e}")
+                error_text = (
+                    f"❌ *Error Accessing Channel!*\n\n"
+                    f"This channel could not be found or accessed by the bot. Please ensure you have taken these two critical steps:\n\n"
+                    f"1. *Add the bot:* Use the invite link or hash to add the bot to the channel.\n"
+                    f"2. *Promote to Admin:* In the channel's settings, promote the bot to an administrator with `Invite Users` and `Pin Messages` permissions.\n\n"
+                    f"Once you've done this, please send the link or hash again."
+                )
+                await show_error_animation(update, context, error_text, loading_msg.message_id if loading_msg else None)
+                return ASK_CHANNEL
+
+            # Verify bot is an admin in the channel
+            try:
+                bot_member = await context.bot.get_chat_member(chat_id=chat_info.id, user_id=context.bot.id)
+                if bot_member.status not in ['administrator', 'creator']:
+                    error_text = (
+                        f"Bot is not an admin in the channel `{chat_info.title}`\n\nPlease make the bot an administrator and try again."
+                    )
+                    await show_error_animation(update, context, error_text, loading_msg.message_id if loading_msg else None)
+                    return ASK_CHANNEL
+            except Exception as e:
+                logger.error(f"Admin check failed for {channel_input}: {e}")
+                error_text = "Could not verify admin status. Please ensure the bot is an admin and try again."
+                await show_error_animation(update, context, error_text, loading_msg.message_id if loading_msg else None)
+                return ASK_CHANNEL
+
+            # If everything is successful, save the chat ID and title
+            context.user_data['task_channel'] = channel_input # Store the original string input
             context.user_data['channel_title'] = chat_info.title
+            context.user_data['is_private_channel'] = False
             
             reward_msg = (
                 f"✅ *Channel Verified!*\n\n"
-                f"📺 Channel: `{channel}`\n"
-                f"📝 Title: {escape_markdown(chat_info.title)}\n\n"
+                f"📺 Channel: `{chat_info.title}`\n"
+                f"🆔 Identifier: `{channel_input}`\n\n"
                 f"*Step 2: Reward Amount*\n\n"
-                f"How many coins should users earn?\n"
-                f"Range: 10-500 coins\n"
+                f"How many coins should users earn? (Max 5000 coins)\n"
                 f"Recommended: 50-100 coins"
             )
             
-            await show_success_animation(update, context, reward_msg, loading_msg.message_id)
+            await show_success_animation(update, context, reward_msg, loading_msg.message_id if loading_msg else None)
             return ASK_REWARD
-            
-        except Exception as e:
-            error_text = (
-                f"Cannot access `{channel}`\n\nPossible issues:\n• Channel doesn't exist\n• Channel is private\n• Bot not added to channel\n• Incorrect username\n\nPlease check and try again:"
-            )
-            await show_error_animation(update, context, error_text, loading_msg.message_id if loading_msg else None)
-            return ASK_CHANNEL
 
     except Exception as e:
-        logger.error(f"Error in receive_channel: {e}")
-        await show_error_animation(update, context, "Channel validation failed!")
+        logger.error(f"Critical error in receive_channel: {e}")
+        error_text = "An unexpected error occurred during channel validation. Please try again or contact support."
+        await show_error_animation(update, context, error_text, loading_msg.message_id if loading_msg else None)
         return ASK_CHANNEL
+    
+async def receive_channel_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receives the channel ID for private channels."""
+    try:
+        loading_msg = await show_stylish_loading_animation(update, context, "Setting channel ID")
+        
+        channel_id_str = update.message.text.strip()
+        
+        # Validate it's a numeric ID
+        if not channel_id_str.lstrip('-').isdigit():
+            await show_error_animation(update, context, "Invalid channel ID. Please enter a numeric ID.", loading_msg.message_id)
+            return ASK_CHANNEL_ID
+            
+        channel_id = int(channel_id_str)
+        context.user_data['channel_id'] = channel_id
+        
+        # Also ask for a display title for the private channel
+        await show_success_animation(
+            update, context, 
+            "✅ Channel ID set!\n\nPlease enter a display name for this channel:",
+            loading_msg.message_id if loading_msg else None
+        )
+        return ASK_CHANNEL_TITLE
+        
+    except Exception as e:
+        logger.error(f"Error in receive_channel_id: {e}")
+        await show_error_animation(update, context, "Failed to set channel ID!")
+        return ASK_CHANNEL_ID
+
+async def receive_channel_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receives the display title for private channels."""
+    try:
+        loading_msg = await show_stylish_loading_animation(update, context, "Setting channel title")
+        
+        channel_title = update.message.text.strip()
+        context.user_data['channel_title'] = channel_title
+        
+        reward_msg = (
+            f"✅ *Private Channel Setup Complete!*\n\n"
+            f"📺 Channel: `{channel_title}`\n"
+            f"🔗 Invite Link: `{context.user_data['task_channel']}`\n\n"
+            f"*Step 2: Reward Amount*\n\n"
+            f"How many coins should users earn? (Max 5000 coins)\n"
+            f"Recommended: 50-100 coins"
+        )
+        
+        await show_success_animation(update, context, reward_msg, loading_msg.message_id if loading_msg else None)
+        return ASK_REWARD
+        
+    except Exception as e:
+        logger.error(f"Error in receive_channel_title: {e}")
+        await show_error_animation(update, context, "Failed to set channel title!")
+        return ASK_CHANNEL_TITLE
 
 async def receive_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
@@ -2808,9 +2910,9 @@ async def receive_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         try:
             reward = int(update.message.text.strip())
-            if not (10 <= reward <= 500):
+            if not (10 <= reward <= 5000):
                 error_text = (
-                    f"Reward must be between 10-500 coins\n\nRecommended ranges:\n• Easy tasks: 10-50\n• Medium tasks: 50-100\n• Premium tasks: 100-500\n\nPlease enter a valid amount:"
+                    f"Reward must be between 10-5000 coins\n\nRecommended ranges:\n• Easy tasks: 10-50\n• Medium tasks: 50-100\n• Premium tasks: 100-500\n\nPlease enter a valid amount:"
                 )
                 await show_error_animation(update, context, error_text, loading_msg.message_id if loading_msg else None)
                 return ASK_REWARD
@@ -2856,7 +2958,7 @@ async def receive_expiry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return ASK_EXPIRY
 
         expiry_date = datetime.now() + timedelta(days=days)
-        tasks_data = load_data(TASKS_FILE)
+        tasks_data = context.bot_data.setdefault('tasks', {})
         task_id = f"task_{int(datetime.now().timestamp())}"
         
         new_task = {
@@ -2872,7 +2974,14 @@ async def receive_expiry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # Add type-specific data
         task_type = new_task['type']
         if task_type == 'join':
-            new_task['channel_username'] = context.user_data['task_channel']
+            if context.user_data.get('is_private_channel', False):
+                new_task['channel_username'] = context.user_data['task_channel']
+                new_task['channel_hash'] = context.user_data['channel_hash']
+                new_task['channel_id'] = context.user_data['channel_id']  # Store the channel ID
+                new_task['is_private'] = True
+            else:
+                new_task['channel_username'] = context.user_data['task_channel']
+                new_task['is_private'] = False
             new_task['channel_title'] = context.user_data.get('channel_title', 'Unknown')
         elif task_type == 'quiz':
             new_task['question'] = context.user_data['task_question']
@@ -2884,41 +2993,42 @@ async def receive_expiry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         tasks_data[task_id] = new_task
         
-        if save_data(tasks_data, TASKS_FILE):
-            # Clean up context data
-            for key in list(context.user_data.keys()):
-                if key.startswith('task_'):
-                    del context.user_data[key]
-            
-            success_msg = f"✅ *TASK CREATED SUCCESSFULLY!* ✅\n\n"
-            if task_type == 'join':
-                success_msg += f"📺 Channel: `{new_task['channel_username']}`\n"
-            elif task_type == 'quiz':
-                 success_msg += f"❓ Question: `{new_task['question']}`\n"
-            elif task_type == 'social':
-                 success_msg += f"🌐 Link: `{new_task['link']}`\n"
-            elif task_type == 'game':
-                 success_msg += f"🎮 Game: Guess the Number\n"
+        # Clean up context data
+        for key in list(context.user_data.keys()):
+            if key.startswith('task_'):
+                del context.user_data[key]
+        
+        success_msg = f"✅ *TASK CREATED SUCCESSFULLY!* ✅\n\n"
+        if task_type == 'join':
+            success_msg += f"📺 Channel: `{new_task['channel_title']}`\n"
+            if new_task.get('is_private', False):
+                success_msg += f"🔗 Invite Link: `{new_task['channel_username']}`\n"
+                success_msg += f"🆔 Channel ID: `{new_task['channel_id']}`\n"
+            else:
+                success_msg += f"🆔 Identifier: `{new_task['channel_username']}`\n"
+        elif task_type == 'quiz':
+            success_msg += f"❓ Question: `{new_task['question']}`\n"
+        elif task_type == 'social':
+            success_msg += f"🌐 Link: `{new_task['link']}`\n"
+        elif task_type == 'game':
+            success_msg += f"🎮 Game: Guess the Number\n"
 
-            success_msg += (
-                f"🪙 Reward: {new_task['reward']} Coins\n"
-                f"⏰ Duration: {days} day(s)\n"
-                f"📅 Expires: {expiry_date.strftime('%d/%m/%Y %H:%M')}\n"
-                f"🆔 Task ID: `{task_id}`\n\n"
-                f"🚀 Broadcasting to all users..."
-            )
-            
-            await show_success_animation(update, context, success_msg, loading_msg.message_id)
-            
-            # Broadcast is handled after returning
-            context.job_queue.run_once(
-                broadcast_new_task, 
-                when=1, 
-                data={'task': new_task, 'days': days}
-            )
-
-        else:
-            await show_error_animation(update, context, "Failed to save task! Please try again.", loading_msg.message_id if loading_msg else None)
+        success_msg += (
+            f"🪙 Reward: {new_task['reward']} Coins\n"
+            f"⏰ Duration: {days} day(s)\n"
+            f"📅 Expires: {expiry_date.strftime('%d/%m/%Y %H:%M')}\n"
+            f"🆔 Task ID: `{task_id}`\n\n"
+            f"🚀 Broadcasting to all users..."
+        )
+        
+        await show_success_animation(update, context, success_msg, loading_msg.message_id if loading_msg else None)
+        
+        # Broadcast is handled after returning
+        context.job_queue.run_once(
+            broadcast_new_task, 
+            when=1, 
+            data={'task': new_task, 'days': days}
+        )
         
         await admin_command(update, context)
         return ConversationHandler.END
@@ -2933,7 +3043,7 @@ async def clean_expired_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_task_clean'])
         
-        tasks_data = load_data(TASKS_FILE)
+        tasks_data = context.bot_data.get('tasks', {})
         now = datetime.now()
         
         expired_tasks = []
@@ -2973,10 +3083,8 @@ async def clean_expired_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE
         cleanup_msg += f"🗑️ Expired: {len(expired_tasks)}\n"
         cleanup_msg += f"✅ Active: {len(active_tasks)}\n"
         
-        if save_data(active_tasks, TASKS_FILE):
-            cleanup_msg += f"\n✅ *Cleanup completed successfully!*"
-        else:
-            cleanup_msg += f"\n❌ *Cleanup failed - data not saved*"
+        context.bot_data['tasks'] = active_tasks
+        cleanup_msg += f"\n✅ *Cleanup completed successfully!*"
         
         await show_success_animation(update, context, cleanup_msg, loading_msg.message_id)
 
@@ -2988,7 +3096,7 @@ async def remove_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     try:
         loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_task_remove'])
         
-        tasks_data = load_data(TASKS_FILE)
+        tasks_data = context.bot_data.get('tasks', {})
         now = datetime.now()
         
         active_tasks = {}
@@ -3017,7 +3125,7 @@ async def remove_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         for i, (task_id, task) in enumerate(list(active_tasks.items())[:15], 1):
             task_type = task.get('type', 'join')
             if task_type == 'join':
-                name = task.get('channel_username', 'Unknown')
+                name = task.get('channel_title', 'Unknown')
             elif task_type == 'quiz':
                 name = f"Quiz: {task.get('question', '...')[:15]}"
             else:
@@ -3048,25 +3156,18 @@ async def remove_task_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         _, task_id_to_remove = query.data.split(':', 1)
 
-        tasks_data = load_data(TASKS_FILE)
+        tasks_data = context.bot_data.get('tasks', {})
         
         if task_id_to_remove not in tasks_data:
             await show_error_animation(update, context, "This task may have already been removed.", loading_msg.message_id if loading_msg else None)
             return
         
         task = tasks_data[task_id_to_remove]
-        channel = task.get('channel_username', 'Task')
-        reward = task['reward']
+        task_info = f"Task '{task.get('channel_title', 'Misc Task')}' (ID: `{task_id_to_remove}`)"
         
         del tasks_data[task_id_to_remove]
         
-        if save_data(tasks_data, TASKS_FILE):
-            success_msg = (
-                f"✅ *TASK REMOVED* ✅\n\n"
-                f"🗑️ Task '{channel}' with reward {reward} has been permanently deleted."
-            )
-        else:
-            success_msg = "❌ *Removal Failed*\n\nCould not save changes. Please try again."
+        success_msg = f"✅ *TASK REMOVED* ✅\n\n🗑️ {task_info} has been permanently deleted."
         
         await show_success_animation(update, context, success_msg, loading_msg.message_id)
 
@@ -3107,7 +3208,7 @@ async def tool_export_users_callback(update: Update, context: ContextTypes.DEFAU
     loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_export'])
     
     try:
-        users_data = load_data(USERS_FILE)
+        users_data = context.bot_data.get('users', {})
         if not users_data:
             await show_error_animation(update, context, "No user data to export.", loading_msg.message_id)
             return
@@ -3185,49 +3286,131 @@ async def handle_admin_tool_callback(update: Update, context: ContextTypes.DEFAU
     else:
         await query.answer("Unknown tool command.")
 
-# --- FIX: MISSING FUNCTION IMPLEMENTATIONS ---
+# --- NEW ADMIN CONVERSATION FOR ADJUSTING USER BALANCE ---
+async def adjust_balance_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Starts the conversation for adjusting a user's balance."""
+    msg = (
+        f"🎁 *ADJUST USER BALANCE*\n\n"
+        f"Please send the user's Telegram ID or username to adjust their balance.\n"
+        f"Example: `123456789` or `@username`\n\n"
+        f"Type /cancel to abort."
+    )
+    await safe_send_message(update, context, msg, parse_mode=ParseMode.MARKDOWN, force_new=True)
+    return ADJUST_BALANCE_ID
 
-async def receive_task_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handles the admin's selection of a task type."""
-    task_type_text = update.message.text
+async def adjust_balance_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receives user ID/username and asks for the cash amount."""
+    users_data = context.bot_data.get('users', {})
     
-    if f"{EMOJIS['magic']} Join Channel" in task_type_text:
-        context.user_data['task_type'] = 'join'
-        await update.message.reply_text(
-            "Great! Now, send the channel username (e.g., @telegram). The bot must be an admin in the channel.",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return ASK_CHANNEL
-        
-    elif f"{EMOJIS['quiz']} Quiz" in task_type_text:
-        context.user_data['task_type'] = 'quiz'
-        await update.message.reply_text(
-            "Let's create a quiz! First, what is the question?",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return ASK_QUIZ_QUESTION
-        
-    elif f"{EMOJIS['social']} Social Media" in task_type_text:
-        context.user_data['task_type'] = 'social'
-        await update.message.reply_text(
-            "Social media task! Please send the full link for the user to visit (e.g., https://twitter.com/user/status/123).",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return ASK_SOCIAL_LINK
+    user_input = update.message.text.strip().replace('@', '')
+    target_user_id = None
 
-    elif f"{EMOJIS['game']} Mini-Game" in task_type_text:
-        context.user_data['task_type'] = 'game'
-        # For the number guessing game, we can go straight to asking for the reward
-        await update.message.reply_text(
-            "Game time! The 'Guess the Number' game is ready. How many coins should users earn for winning?",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return ASK_REWARD
-        
+    # Try to find user by ID first
+    if user_input.isdigit() and user_input in users_data:
+        target_user_id = user_input
+    # Then try to find user by username
     else:
-        await update.message.reply_text("Invalid selection. Please choose a task type from the buttons.")
-        return ASK_TASK_TYPE
+        for user_id, user_data in users_data.items():
+            if user_data.get('username', '').lower() == user_input.lower():
+                target_user_id = user_id
+                break
+    
+    if not target_user_id or target_user_id not in users_data:
+        await update.message.reply_text("❌ User not found. Please enter a valid user ID or username.")
+        return ADJUST_BALANCE_ID
+    
+    context.user_data['target_user_id'] = target_user_id
+    user_data = users_data.get(target_user_id)
+    
+    msg = (
+        f"✅ User found: *{escape_markdown(user_data.get('first_name', 'N/A'))} (@{escape_markdown(user_data.get('username', 'N/A'))})*\n"
+        f"Current Balance: *₹{format_number(user_data.get('balance', 0))}* | Coins: *{user_data.get('coin_balance', 0)}*\n\n"
+        f"Now, enter the amount of cash to add or subtract.\n"
+        f"Use a minus sign for subtraction (e.g., `+50` or `-10.5`)\n\n"
+        f"Type /cancel to abort."
+    )
+    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+    return ADJUST_BALANCE_CASH
 
+async def adjust_balance_cash(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receives the cash amount and asks for the coin amount."""
+    try:
+        cash_change = float(update.message.text.strip())
+        context.user_data['cash_change'] = cash_change
+    except ValueError:
+        await update.message.reply_text("❌ Invalid cash amount. Please enter a number.")
+        return ADJUST_BALANCE_CASH
+    
+    msg = (
+        f"✅ Cash change set to *₹{format_number(context.user_data['cash_change'])}*\n\n"
+        f"Now, enter the amount of coins to add or subtract.\n"
+        f"Use a minus sign for subtraction (e.g., `+100` or `-50`)\n\n"
+        f"Type /cancel to abort."
+    )
+    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+    return ADJUST_BALANCE_COIN
+
+async def adjust_balance_coin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receives the coin amount, applies the changes, and ends the conversation."""
+    loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['adjust_balance'])
+
+    try:
+        coin_change = int(update.message.text.strip())
+        context.user_data['coin_change'] = coin_change
+    except ValueError:
+        await show_error_animation(update, context, "❌ Invalid coin amount. Please enter an integer.", loading_msg.message_id if loading_msg else None)
+        return ADJUST_BALANCE_COIN
+    
+    user_id = context.user_data.get('target_user_id')
+    cash_change = context.user_data.get('cash_change', 0)
+    coin_change = context.user_data.get('coin_change', 0)
+
+    users_data = context.bot_data.get('users', {})
+    user_data = users_data.get(user_id)
+    
+    if user_data:
+        old_cash = user_data.get('balance', 0)
+        old_coins = user_data.get('coin_balance', 0)
+        
+        user_data['balance'] += cash_change
+        user_data['coin_balance'] += coin_change
+        
+        if user_data['balance'] < 0: user_data['balance'] = 0
+        if user_data['coin_balance'] < 0: user_data['coin_balance'] = 0
+
+        final_msg = (
+            f"✅ *BALANCE ADJUSTED!* ✅\n\n"
+            f"User: *{escape_markdown(user_data.get('first_name', 'N/A'))} (@{escape_markdown(user_data.get('username', 'N/A'))})*\n"
+            f"Cash: *₹{format_number(old_cash)}* -> *₹{format_number(user_data['balance'])}*\n"
+            f"Coins: *{old_coins}* -> *{user_data['coin_balance']}*\n\n"
+            f"Changes applied successfully!"
+        )
+        
+        await show_success_animation(update, context, final_msg, loading_msg.message_id)
+
+        # Notify the user of the change
+        try:
+            user_notification = (
+                f"🔔 *Your balance has been adjusted by an admin!* 🔔\n"
+                f"Cash: *{'+' if cash_change >= 0 else ''}{format_number(cash_change)}* ₹\n"
+                f"Coins: *{'+' if coin_change >= 0 else ''}{coin_change}* 🪙\n\n"
+                f"Your new balance is:\n"
+                f"💰 Cash: *₹{format_number(user_data['balance'])}*\n"
+                f"🪙 Coins: *{user_data['coin_balance']}*"
+            )
+            await context.bot.send_message(user_id, user_notification, parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            logger.warning(f"Failed to notify user {user_id} of balance change: {e}")
+    else:
+        await show_error_animation(update, context, "❌ User data disappeared unexpectedly.", loading_msg.message_id if loading_msg else None)
+
+    # Clean up and return to admin panel
+    context.user_data.clear()
+    await admin_command(update, context)
+    return ConversationHandler.END
+
+
+# --- FIX: MISSING FUNCTION IMPLEMENTATIONS ---
 async def receive_quiz_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receives the quiz question and asks for the answer."""
     context.user_data['task_question'] = update.message.text
@@ -3237,7 +3420,7 @@ async def receive_quiz_question(update: Update, context: ContextTypes.DEFAULT_TY
 async def receive_quiz_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receives the quiz answer and asks for the reward."""
     context.user_data['task_answer'] = update.message.text
-    await update.message.reply_text("Answer set! How many coins should users get for a correct answer?")
+    await update.message.reply_text("Answer set! How many coins should users get for a correct answer? (Max 5000 coins)")
     return ASK_REWARD
 
 async def receive_social_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -3246,8 +3429,9 @@ async def receive_social_link(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not (link.startswith("http://") or link.startswith("https://")):
         await update.message.reply_text("Invalid link. Please send a full URL starting with http:// or https://.")
         return ASK_SOCIAL_LINK
+    
     context.user_data['task_link'] = link
-    await update.message.reply_text("Link saved! How many coins should users get for completing this task?")
+    await update.message.reply_text("Link saved! How many coins should users get for completing this task? (Max 5000 coins)")
     return ASK_REWARD
 
 async def claim_social_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3258,8 +3442,8 @@ async def claim_social_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user_id = get_user_id(update)
     task_id = query.data.split(':', 1)[1]
     
-    users_data = load_data(USERS_FILE)
-    tasks_data = load_data(TASKS_FILE)
+    users_data = context.bot_data.get('users', {})
+    tasks_data = context.bot_data.get('tasks', {})
     user_data = users_data.get(user_id)
     task_data = tasks_data.get(task_id)
 
@@ -3275,12 +3459,9 @@ async def claim_social_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user_data['coin_balance'] = user_data.get('coin_balance', 0) + reward
     user_data.setdefault('completed_tasks', []).append(task_id)
     
-    if save_data(users_data, USERS_FILE):
-        success_msg = f"🎉 Task complete! You've earned *{reward}* coins! 🪙"
-        await query.edit_message_text(success_msg, parse_mode=ParseMode.MARKDOWN)
-        await check_and_grant_achievements(user_id, context)
-    else:
-        await query.edit_message_text("❌ Error: Could not save your progress. Please try again.")
+    success_msg = f"🎉 Task complete! You've earned *{reward}* coins! 🪙"
+    await query.edit_message_text(success_msg, parse_mode=ParseMode.MARKDOWN)
+    await check_and_grant_achievements(user_id, context)
 
 async def start_quiz_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Starts the quiz for a user."""
@@ -3288,9 +3469,20 @@ async def start_quiz_task(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.answer()
     
     task_id = query.data.split(':', 1)[1]
+    user_id = get_user_id(update)
+    users_data = context.bot_data.get('users', {})
+    user_data = users_data.get(user_id, {})
+    
+    if task_id in user_data.get('completed_tasks', []):
+        await query.message.reply_text("❌ You have already completed this quiz task.")
+        return ConversationHandler.END
+
+    tasks_data = context.bot_data.get('tasks', {})
+    question = tasks_data.get(task_id, {}).get('question', 'No question provided.')
+    
     context.user_data['current_quiz_task'] = task_id
     
-    await query.message.reply_text("Please type your answer to the quiz question in the chat.\nYou have 2 minutes. Type /cancel to abort.")
+    await query.message.reply_text(f"❓ *Quiz Question:*\n{question}\n\nPlease type your answer in the chat.\n\nType /cancel to abort.", parse_mode=ParseMode.MARKDOWN)
     return 1 # Next state in quiz_conv_handler
 
 async def process_quiz_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -3300,23 +3492,21 @@ async def process_quiz_answer(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if not task_id:
         await update.message.reply_text("Quiz session expired. Please start again.")
-        return ConversationHandler.END
-
-    tasks_data = load_data(TASKS_FILE)
+    
+    tasks_data = context.bot_data.get('tasks', {})
     task_data = tasks_data.get(task_id)
     correct_answer = task_data.get('answer')
+    user_id = get_user_id(update)
+    users_data = context.bot_data.get('users', {})
+    user_data = users_data[user_id]
+    
+    # Mark as completed regardless of the outcome to prevent multiple attempts
+    user_data.setdefault('completed_tasks', []).append(task_id)
 
-    if user_answer == correct_answer:
+    if user_answer.lower() == correct_answer.lower():
         # User is correct
-        users_data = load_data(USERS_FILE)
-        user_id = get_user_id(update)
-        user_data = users_data[user_id]
-        
         reward = task_data['reward']
         user_data['coin_balance'] = user_data.get('coin_balance', 0) + reward
-        user_data.setdefault('completed_tasks', []).append(task_id)
-        
-        save_data(users_data, USERS_FILE)
         
         success_msg = f"✅ Correct! You've earned *{reward}* coins! 🪙"
         await update.message.reply_text(success_msg, parse_mode=ParseMode.MARKDOWN)
@@ -3334,6 +3524,14 @@ async def start_game_task(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.answer()
     
     task_id = query.data.split(':', 1)[1]
+    user_id = get_user_id(update)
+    users_data = context.bot_data.get('users', {})
+    user_data = users_data.get(user_id, {})
+    
+    if task_id in user_data.get('completed_tasks', []):
+        await query.message.reply_text("❌ You have already completed this game task.")
+        return ConversationHandler.END
+
     secret_number = randint(1, 20)
     
     context.user_data['game_task_id'] = task_id
@@ -3362,21 +3560,21 @@ async def process_game_guess(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
     attempts_left -= 1
     context.user_data['game_attempts_left'] = attempts_left
+    
+    users_data = context.bot_data.get('users', {})
+    user_id = get_user_id(update)
+    user_data = users_data[user_id]
+    task_id = context.user_data['game_task_id']
+
 
     if guess == secret_number:
         # User wins
-        task_id = context.user_data['game_task_id']
-        tasks_data = load_data(TASKS_FILE)
+        tasks_data = context.bot_data.get('tasks', {})
         task_data = tasks_data[task_id]
         reward = task_data['reward']
         
-        users_data = load_data(USERS_FILE)
-        user_id = get_user_id(update)
-        user_data = users_data[user_id]
-        
         user_data['coin_balance'] = user_data.get('coin_balance', 0) + reward
         user_data.setdefault('completed_tasks', []).append(task_id)
-        save_data(users_data, USERS_FILE)
 
         await update.message.reply_text(f"🎉 You got it! The number was {secret_number}. You've earned *{reward}* coins! 🪙", parse_mode=ParseMode.MARKDOWN)
         await check_and_grant_achievements(user_id, context)
@@ -3392,7 +3590,9 @@ async def process_game_guess(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"Nope! Try a little {hint}. You have {attempts_left} guess(es) left.")
         return GAME_GUESS_NUMBER
     else:
-        # User loses
+        # User loses, mark task as complete so they can't try again.
+        user_data.setdefault('completed_tasks', []).append(task_id)
+        
         await update.message.reply_text(f"😥 Out of guesses! The correct number was {secret_number}. Better luck next time!")
         
         # Clean up context
@@ -3410,7 +3610,7 @@ async def broadcast_new_task(context: ContextTypes.DEFAULT_TYPE):
     reward = task_info['reward']
     
     if task_type == 'join':
-        description = f"Join the channel `{task_info['channel_username']}`"
+        description = f"Join the channel `{task_info['channel_title']}`"
     elif task_type == 'quiz':
         description = f"Answer a quiz question: *{task_info['question']}*"
     elif task_type == 'social':
@@ -3426,61 +3626,209 @@ async def broadcast_new_task(context: ContextTypes.DEFAULT_TYPE):
         f"This task is available for *{days} day(s)*. Go to the '{EMOJIS['magic']} Tasks' section to complete it now!"
     )
     
-    users_data = load_data(USERS_FILE)
+    users_data = context.bot_data.get('users', {})
     for user_id in users_data.keys():
         try:
             await context.bot.send_message(user_id, broadcast_msg, parse_mode=ParseMode.MARKDOWN)
             await asyncio.sleep(0.05) # To avoid hitting rate limits
         except Exception:
             pass
+            
+async def create_backup() -> bool:
+    """Creates backup of all data files."""
+    try:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_dir = f"backup_{timestamp}"
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        files_to_backup = [USERS_FILE, TASKS_FILE, WITHDRAWALS_FILE, SETTINGS_FILE]
+        
+        for file in files_to_backup:
+            if os.path.exists(file):
+                backup_file = os.path.join(backup_dir, file)
+                with open(file, 'r', encoding='utf-8') as src:
+                    with open(backup_file, 'w', encoding='utf-8') as dst:
+                        dst.write(src.read())
+        
+        logger.info(f"✅ Backup created: {backup_dir}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Backup failed: {e}")
+        return False
 
-async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Shows the language selection menu."""
+# --- NEW: COIN CONVERT FUNCTIONS ---
+async def toggle_coin_convert(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Toggles the coin convert feature for all users."""
+    if get_user_id(update) != str(ADMIN_ID):
+        await update.message.reply_text("You are not authorized to use this command.")
+        return
+    
+    loading_msg = await show_stylish_loading_animation(update, context, "Toggling feature")
+
+    try:
+        settings = context.bot_data.setdefault('settings', {})
+        current_status = settings.get('coin_convert_enabled', False)
+        settings['coin_convert_enabled'] = not current_status
+        
+        new_status = "ON" if settings['coin_convert_enabled'] else "OFF"
+        success_msg = f"✅ *Coin Convert feature is now {new_status}!* ✅"
+        logger.info(f"Admin toggled coin convert to {new_status}")
+        await show_success_animation(update, context, success_msg, loading_msg.message_id)
+
+    except Exception as e:
+        logger.error(f"Error toggling coin convert: {e}")
+        await show_error_animation(update, context, "Failed to toggle feature. Please check logs.", loading_msg.message_id)
+
+    await admin_command(update, context)
+
+async def coin_convert_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Starts the coin conversion conversation for a user."""
+    
+    loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['coin_convert'])
+
+    settings = context.bot_data.get('settings', {})
+    if not settings.get('coin_convert_enabled', False):
+        await show_error_animation(update, context, "❌ The coin conversion feature is currently disabled. Please check back later!", loading_msg.message_id)
+        return ConversationHandler.END
+
     user_id = get_user_id(update)
-    users_data = load_data(USERS_FILE)
-    user_lang = users_data.get(user_id, {}).get('language', 'en')
+    users_data = context.bot_data.get('users', {})
+    user_data = users_data.get(user_id, {})
+    coin_balance = user_data.get('coin_balance', 0)
+    
+    min_convert = 5000 # Minimum coins to convert
 
-    keyboard = [
-        [InlineKeyboardButton("🇬🇧 English", callback_data="set_lang:en")],
-        [InlineKeyboardButton("🇪🇸 Español", callback_data="set_lang:es")],
-        [InlineKeyboardButton("🇮🇳 हिन्दी", callback_data="set_lang:hi")],
-        [InlineKeyboardButton("🇷🇺 Русский", callback_data="set_lang:ru")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await safe_send_message(
-        update, context,
-        text=get_text('lang_select', user_lang),
-        reply_markup=reply_markup,
-        force_new=True
+    if coin_balance < min_convert:
+        await show_error_animation(update, context, f"You need at least *{min_convert}* coins to convert! Earn some more coins first by completing tasks.", loading_msg.message_id)
+        return ConversationHandler.END
+
+    convert_msg = (
+        f"🔄 *COIN CONVERTER* 🔄\n\n"
+        f"Your current coin balance: *{coin_balance}* 🪙\n"
+        f"Conversion rate: *{COIN_CONVERSION_RATE} coins = 1 ₹*\n"
+        f"Minimum to convert: *{min_convert}* 🪙\n\n"
+        f"Please enter the number of coins you want to convert to cash.\n\n"
+        f"Type /cancel to abort."
     )
 
-async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Sets the user's language preference."""
-    query = update.callback_query
-    await query.answer()
+    await show_success_animation(
+        update, context,
+        convert_msg,
+        loading_msg.message_id,
+        reply_markup=ReplyKeyboardRemove()
+    )
+    
+    return ASK_COIN_CONVERT
 
-    lang_code = query.data.split(':', 1)[1]
-    user_id = get_user_id(update)
+async def coin_convert_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Processes the user's coin conversion request."""
+    loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['coin_convert'])
 
-    users_data = load_data(USERS_FILE)
-    if user_id in users_data:
-        users_data[user_id]['language'] = lang_code
-        save_data(users_data, USERS_FILE)
+    min_convert = 5000
+    try:
+        coins_to_convert = int(update.message.text.strip())
         
-        lang_name_map = {'en': 'English', 'es': 'Español', 'hi': 'हिन्दी', 'ru': 'Русский'}
+        if coins_to_convert <= 0:
+            await show_error_animation(update, context, "Please enter a number greater than 0.", loading_msg.message_id)
+            return ASK_COIN_CONVERT
         
-        await query.edit_message_text(
-            get_text('lang_selected', lang_code).format(lang_name=lang_name_map.get(lang_code, 'English'))
+        if coins_to_convert < min_convert:
+            await show_error_animation(update, context, f"You need to convert a minimum of *{min_convert}* coins.", loading_msg.message_id)
+            return ASK_COIN_CONVERT
+
+        user_id = get_user_id(update)
+        users_data = context.bot_data.get('users', {})
+        user_data = users_data.get(user_id)
+
+        if not user_data:
+            await show_error_animation(update, context, "User data not found. Please try /start.", loading_msg.message_id)
+            await start_command(update, context)
+            return ConversationHandler.END
+
+        if coins_to_convert > user_data.get('coin_balance', 0):
+            await show_error_animation(update, context, "You don't have enough coins! Please enter a valid amount.", loading_msg.message_id)
+            return ASK_COIN_CONVERT
+
+        # Perform conversion
+        cash_earned = coins_to_convert / COIN_CONVERSION_RATE
+        user_data['coin_balance'] -= coins_to_convert
+        user_data['balance'] = user_data.get('balance', 0.0) + cash_earned
+
+        success_msg = (
+            f"✅ *Conversion Successful!* ✅\n\n"
+            f"You converted *{coins_to_convert}* coins to *₹{format_number(cash_earned)}* cash.\n"
+            f"💰 New Cash Balance: *₹{format_number(user_data['balance'])}*\n"
+            f"🪙 New Coin Balance: *{user_data['coin_balance']}*\n\n"
+            f"View your wallet with the '{EMOJIS['bank']} My Vault' button."
         )
-        # Restart the bot for the user to apply the new language immediately
-        await start_command(update, context)
-    else:
-        await query.edit_message_text("Error: User not found. Please /start the bot.")
+        await show_success_animation(update, context, success_msg, loading_msg.message_id)
+
+    except ValueError:
+        await show_error_animation(update, context, "Invalid input. Please enter a valid number.", loading_msg.message_id)
+        return ASK_COIN_CONVERT
+    except Exception as e:
+        logger.error(f"Error in coin_convert_receive: {e}")
+        await show_error_animation(update, context, "An error occurred during conversion. Please try again later.", loading_msg.message_id)
+    
+    await start_command(update, context)
+    return ConversationHandler.END
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        logger.error(f"Exception while handling an update: {context.error}")
+        
+        user_id = "Unknown"
+        if isinstance(update, Update) and update.effective_user:
+            user_id = update.effective_user.id
+        
+        logger.error(f"Error occurred for user {user_id}: {context.error}")
+        
+        if not hasattr(context.bot_data, 'last_error_notification'):
+            context.bot_data['last_error_notification'] = 0
+        
+        now = time.time()
+        if now - context.bot_data['last_error_notification'] > 300:  # 5 minutes
+            try:
+                error_msg = (
+                    f"🔴 *BOT ERROR ALERT* 🔴\n\n"
+                    f"👤 User: {user_id}\n"
+                    f"⏰ Time: {datetime.now().strftime('%H:%M:%S')}\n"
+                    f"❌ Error: `{str(context.error)[:100]}...`\n\n"
+                    f"Check logs for details."
+                )
+                
+                await context.bot.send_message(
+                    chat_id=ADMIN_ID,
+                    text=error_msg,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                context.bot_data['last_error_notification'] = now
+            except Exception:
+                pass
+        
+        if isinstance(update, Update) and update.effective_message:
+            try:
+                await update.effective_message.reply_text(
+                    "❌ Something went wrong! Please try again or contact admin if the problem persists.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception:
+                pass
+
+    except Exception as e:
+        logger.error(f"Error in error handler: {e}")
 
 
 async def post_init(application: Application) -> None:
-    """Enhanced bot initialization with comprehensive command setup."""
+    """Enhanced bot initialization with comprehensive command setup and data loading."""
     try:
+        # Load data into memory at startup
+        application.bot_data['users'] = load_data(USERS_FILE)
+        application.bot_data['tasks'] = load_data(TASKS_FILE)
+        application.bot_data['withdrawals'] = load_data(WITHDRAWALS_FILE)
+        application.bot_data['settings'] = load_data(SETTINGS_FILE)
+        
         await create_backup()
         user_commands = [
             BotCommand("start", "🚀 Start/Restart Bot"),
@@ -3495,7 +3843,6 @@ async def post_init(application: Application) -> None:
             BotCommand("leaderboard", f"{EMOJIS['leaderboard']} View Leaderboard"),
             BotCommand("achievements", f"{EMOJIS['achievement']} My Achievements"),
             BotCommand("feedback", f"{EMOJIS['feedback']} Send Feedback"),
-            BotCommand("language", f"{EMOJIS['language']} Change Language"),
         ]
         await application.bot.set_my_commands(user_commands)
 
@@ -3546,191 +3893,6 @@ async def post_init(application: Application) -> None:
 
     except Exception as e:
         logger.error(f"Error in post_init: {e}")
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        logger.error(f"Exception while handling an update: {context.error}")
-        
-        user_id = "Unknown"
-        if isinstance(update, Update) and update.effective_user:
-            user_id = update.effective_user.id
-        
-        logger.error(f"Error occurred for user {user_id}: {context.error}")
-        
-        if not hasattr(context.bot_data, 'last_error_notification'):
-            context.bot_data['last_error_notification'] = 0
-        
-        now = time.time()
-        if now - context.bot_data['last_error_notification'] > 300:  # 5 minutes
-            try:
-                error_msg = (
-                    f"🔴 *BOT ERROR ALERT* 🔴\n\n"
-                    f"👤 User: {user_id}\n"
-                    f"⏰ Time: {datetime.now().strftime('%H:%M:%S')}\n"
-                    f"❌ Error: `{str(context.error)[:100]}...`\n\n"
-                    f"Check logs for details."
-                )
-                
-                await context.bot.send_message(
-                    chat_id=ADMIN_ID,
-                    text=error_msg,
-                    parse_mode=ParseMode.MARKDOWN
-                )
-                context.bot_data['last_error_notification'] = now
-            except Exception:
-                pass
-        
-        if isinstance(update, Update) and update.effective_message:
-            try:
-                await update.effective_message.reply_text(
-                    "❌ Something went wrong! Please try again or contact admin if the problem persists.",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            except Exception:
-                pass
-
-    except Exception as e:
-        logger.error(f"Error in error handler: {e}")
-        
-async def create_backup() -> bool:
-    """Creates backup of all data files."""
-    try:
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        backup_dir = f"backup_{timestamp}"
-        os.makedirs(backup_dir, exist_ok=True)
-        
-        files_to_backup = [USERS_FILE, TASKS_FILE, WITHDRAWALS_FILE, SETTINGS_FILE]
-        
-        for file in files_to_backup:
-            if os.path.exists(file):
-                backup_file = os.path.join(backup_dir, file)
-                with open(file, 'r', encoding='utf-8') as src:
-                    with open(backup_file, 'w', encoding='utf-8') as dst:
-                        dst.write(src.read())
-        
-        logger.info(f"✅ Backup created: {backup_dir}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"❌ Backup failed: {e}")
-        return False
-
-# --- NEW: COIN CONVERT FUNCTIONS ---
-async def toggle_coin_convert(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Toggles the coin convert feature for all users."""
-    if get_user_id(update) != str(ADMIN_ID):
-        await update.message.reply_text("You are not authorized to use this command.")
-        return
-    
-    loading_msg = await show_stylish_loading_animation(update, context, "Toggling feature")
-
-    try:
-        settings = load_data(SETTINGS_FILE)
-        current_status = settings.get('coin_convert_enabled', False)
-        settings['coin_convert_enabled'] = not current_status
-        
-        if save_data(settings, SETTINGS_FILE):
-            new_status = "ON" if settings['coin_convert_enabled'] else "OFF"
-            success_msg = f"✅ *Coin Convert feature is now {new_status}!* ✅"
-            logger.info(f"Admin toggled coin convert to {new_status}")
-            await show_success_animation(update, context, success_msg, loading_msg.message_id)
-        else:
-            await show_error_animation(update, context, "Failed to save settings. Please try again.", loading_msg.message_id)
-
-    except Exception as e:
-        logger.error(f"Error toggling coin convert: {e}")
-        await show_error_animation(update, context, "Failed to toggle feature. Please check logs.", loading_msg.message_id)
-
-    await admin_command(update, context)
-
-async def coin_convert_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Starts the coin conversion conversation for a user."""
-    
-    loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['coin_convert'])
-
-    settings = load_data(SETTINGS_FILE)
-    if not settings.get('coin_convert_enabled', False):
-        await show_error_animation(update, context, "❌ The coin conversion feature is currently disabled. Please check back later!", loading_msg.message_id)
-        return ConversationHandler.END
-
-    user_id = get_user_id(update)
-    users_data = load_data(USERS_FILE)
-    user_data = users_data.get(user_id, {})
-    coin_balance = user_data.get('coin_balance', 0)
-
-    if coin_balance == 0:
-        await show_error_animation(update, context, "You have no coins to convert! Earn some coins first by completing tasks.", loading_msg.message_id)
-        return ConversationHandler.END
-
-    convert_msg = (
-        f"🔄 *COIN CONVERTER* 🔄\n\n"
-        f"Your current coin balance: *{coin_balance}* 🪙\n"
-        f"Conversion rate: *{COIN_CONVERSION_RATE} coins = 1 ₹*\n\n"
-        f"Please enter the number of coins you want to convert to cash.\n\n"
-        f"Type /cancel to abort."
-    )
-
-    await show_success_animation(
-        update, context,
-        convert_msg,
-        loading_msg.message_id,
-        reply_markup=ReplyKeyboardRemove()
-    )
-    
-    return ASK_COIN_CONVERT
-
-async def coin_convert_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Processes the user's coin conversion request."""
-    loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['coin_convert'])
-
-    try:
-        coins_to_convert = int(update.message.text.strip())
-        
-        if coins_to_convert <= 0:
-            await show_error_animation(update, context, "Please enter a number greater than 0.", loading_msg.message_id)
-            return ASK_COIN_CONVERT
-
-        user_id = get_user_id(update)
-        users_data = load_data(USERS_FILE)
-        user_data = users_data.get(user_id)
-
-        if not user_data:
-            await show_error_animation(update, context, "User data not found. Please try /start.", loading_msg.message_id)
-            await start_command(update, context)
-            return ConversationHandler.END
-
-        if coins_to_convert > user_data.get('coin_balance', 0):
-            await show_error_animation(update, context, "You don't have enough coins! Please enter a valid amount.", loading_msg.message_id)
-            return ASK_COIN_CONVERT
-
-        # Perform conversion
-        cash_earned = coins_to_convert / COIN_CONVERSION_RATE
-        user_data['coin_balance'] -= coins_to_convert
-        user_data['balance'] = user_data.get('balance', 0.0) + cash_earned
-
-        if save_data(users_data, USERS_FILE):
-            success_msg = (
-                f"✅ *Conversion Successful!* ✅\n\n"
-                f"You converted *{coins_to_convert}* coins to *₹{format_number(cash_earned)}* cash.\n"
-                f"💰 New Cash Balance: *₹{format_number(user_data['balance'])}*\n"
-                f"🪙 New Coin Balance: *{user_data['coin_balance']}*\n\n"
-                f"View your wallet with the '{EMOJIS['bank']} My Vault' button."
-            )
-            await show_success_animation(update, context, success_msg, loading_msg.message_id)
-        else:
-            await show_error_animation(update, context, "Failed to save conversion. Please try again.", loading_msg.message_id)
-
-    except ValueError:
-        await show_error_animation(update, context, "Invalid input. Please enter a valid number.", loading_msg.message_id)
-        return ASK_COIN_CONVERT
-    except Exception as e:
-        logger.error(f"Error in coin_convert_receive: {e}")
-        await show_error_animation(update, context, "An error occurred during conversion. Please try again later.", loading_msg.message_id)
-    
-    await start_command(update, context)
-    return ConversationHandler.END
-
-
 def main() -> None:
     """Enhanced main function with comprehensive setup."""
     if BOT_TOKEN in ["YOUR_TELEGRAM_BOT_TOKEN", ""]:
@@ -3766,10 +3928,15 @@ def main() -> None:
         )
 
         task_conv_handler = ConversationHandler(
-            entry_points=[MessageHandler(filters.Regex('^➕ Create Task$') & admin_filter, create_task_start)],
+            entry_points=[
+                MessageHandler(filters.Regex('^➕ Create Task$') & admin_filter, create_task_start),
+                CommandHandler('createtask', create_task_start, filters=admin_filter),
+            ],
             states={
                 ASK_TASK_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_task_type)],
                 ASK_CHANNEL: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_channel)],
+                ASK_CHANNEL_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_channel_id)],
+                ASK_CHANNEL_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_channel_title)],
                 ASK_REWARD: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_reward)],
                 ASK_EXPIRY: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_expiry)],
                 ASK_QUIZ_QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_quiz_question)],
@@ -3786,7 +3953,7 @@ def main() -> None:
                 1: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_quiz_answer)]
             },
             fallbacks=[CommandHandler('cancel', cancel_conversation)],
-            conversation_timeout=120, per_user=True, per_chat=True
+            per_user=True, per_chat=True
         )
 
         game_conv_handler = ConversationHandler(
@@ -3795,7 +3962,7 @@ def main() -> None:
                 GAME_GUESS_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_game_guess)]
             },
             fallbacks=[CommandHandler('cancel', cancel_conversation)],
-            conversation_timeout=120, per_user=True, per_chat=True
+            per_user=True, per_chat=True
         )
         
         airdrop_conv_handler = ConversationHandler(
@@ -3812,6 +3979,17 @@ def main() -> None:
             entry_points=[MessageHandler(filters.Regex(f'^{EMOJIS["convert"]} Coin Convert$'), coin_convert_start)],
             states={
                 ASK_COIN_CONVERT: [MessageHandler(filters.TEXT & ~filters.COMMAND, coin_convert_receive)]
+            },
+            fallbacks=[CommandHandler('cancel', cancel_conversation)],
+            per_user=True, per_chat=True
+        )
+
+        adjust_balance_conv = ConversationHandler(
+            entry_points=[MessageHandler(filters.Regex(f"^{EMOJIS['money']} Adjust User Balance$") & admin_filter, adjust_balance_start)],
+            states={
+                ADJUST_BALANCE_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, adjust_balance_id)],
+                ADJUST_BALANCE_CASH: [MessageHandler(filters.TEXT & ~filters.COMMAND, adjust_balance_cash)],
+                ADJUST_BALANCE_COIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, adjust_balance_coin)],
             },
             fallbacks=[CommandHandler('cancel', cancel_conversation)],
             per_user=True, per_chat=True
@@ -3840,7 +4018,7 @@ def main() -> None:
         handlers = [
             task_conv_handler, main_conv_handler, airdrop_conv_handler, 
             feedback_conv, quiz_conv_handler, game_conv_handler, 
-            coin_convert_handler, # Add new coin convert handler
+            coin_convert_handler, adjust_balance_conv,
             leaderboard_handler,
             
             CommandHandler("start", start_command),
@@ -3850,11 +4028,10 @@ def main() -> None:
             CommandHandler("wallet", my_wallet),
             CommandHandler("withdraw", withdraw),
             CommandHandler("refer", refer_command),
-            CommandHandler("stats", show_user_stats),
             CommandHandler("tasks", show_tasks),
+            CommandHandler("stats", show_user_stats),
             CommandHandler("leaderboard", leaderboard_command),
             CommandHandler("achievements", show_achievements),
-            CommandHandler("language", language_command),
             
             CommandHandler("broadcast", broadcast_start, filters=admin_filter),
             CommandHandler("users", view_users, filters=admin_filter),
@@ -3863,24 +4040,40 @@ def main() -> None:
             CommandHandler("cleantasks", clean_expired_tasks, filters=admin_filter),
             
             CallbackQueryHandler(toggle_notifications_callback, pattern='^toggle_notifications$'),
-            CallbackQueryHandler(language_callback, pattern='^set_lang:'),
             CallbackQueryHandler(verify_membership_callback, pattern='^verify:'),
-            CallbackQueryHandler(claim_social_task, pattern='^claim_social:'), # New social claim
+            CallbackQueryHandler(claim_social_task, pattern='^claim_social:'),
             CallbackQueryHandler(remove_task_callback, pattern='^remove:'),
             CallbackQueryHandler(handle_admin_tool_callback, pattern='^tool_'),
+            CallbackQueryHandler(mark_as_paid_callback, pattern='^mark_paid:'),
+            CallbackQueryHandler(export_withdrawals_callback, pattern='^export_withdrawals$'),
             CallbackQueryHandler(handle_callback_query),
             
-            MessageHandler(filters.Regex(f'^({EMOJIS["notify"]} Notifications)$'), notifications_menu),
+            MessageHandler(filters.Regex(f'^{EMOJIS["notify"]} Notifications$'), notifications_menu),
             MessageHandler(
-                filters.Regex('^(📤 Broadcast Text|🖼️ Broadcast Image|📊 Detailed Stats|👥 User List|💸 Withdrawal Requests|🔧 System Tools|' + f'{EMOJIS["airdrop"]} Airdrop' + '|➕ Create Task|🗑️ Remove Task|🧹 Clean Expired Tasks|⬅️ Back to Main|' + f'{EMOJIS["settings"]} Coin Convert.*' + ')$') & admin_filter, 
-                handle_admin_message
+                filters.TEXT & (
+                    filters.Regex('^📤 Broadcast Text$') | 
+                    filters.Regex('^🖼️ Broadcast Image$') | 
+                    filters.Regex('^📊 Detailed Stats$') | 
+                    filters.Regex('^👥 User List$') | 
+                    filters.Regex('^💸 Withdrawal Requests$') | 
+                    filters.Regex('^🔧 System Tools$') | 
+                    filters.Regex(f'^{EMOJIS["airdrop"]} Airdrop$') |
+                    filters.Regex('^➕ Create Task$') | 
+                    filters.Regex('^🗑️ Remove Task$') | 
+                    filters.Regex('^🧹 Clean Expired Tasks$') | 
+                    filters.Regex('^⬅️ Back to Main$') | 
+                    filters.Regex(f'^{EMOJIS["settings"]} Coin Convert.*$') |
+                    filters.Regex(f'^{EMOJIS["money"]} Adjust User Balance$')
+                ) & admin_filter, 
+                handle_message
             ),
             MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
         ]
 
         application.add_handlers(handlers)
         
-        application.job_queue.run_repeating(backup_job, interval=BACKUP_INTERVAL, first=BACKUP_INTERVAL)
+        application.job_queue.run_repeating(save_all_data, interval=BACKUP_INTERVAL, first=10) # Save every hour
+        application.job_queue.run_repeating(backup_job, interval=BACKUP_INTERVAL * 6, first=BACKUP_INTERVAL * 6) # Full backup every 6 hours
 
         application.add_error_handler(error_handler)
 
