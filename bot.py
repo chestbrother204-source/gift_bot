@@ -15,7 +15,7 @@ from typing import Dict, Any, Tuple
 
 # --- CONFIGURATION ---
 # IMPORTANT: Replace these with your actual bot token and admin ID
-BOT_TOKEN = "8310636090:AAFcFbpeCH-fqm0pNzAi7Ng1hWDw7wF72Xs"
+BOT_TOKEN = "8337818595:AAHuG_ayuypWmLjYNj8ALZwKJ_14uF_4GZg"
 ADMIN_ID = 7258860451
 MIN_WITHDRAWAL = 1000.0
 MIN_REWARD = 0.1
@@ -655,6 +655,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             [f"{EMOJIS['rocket']} Invite Friends", f"{EMOJIS['leaderboard']} Leaderboard"],
             ["📊 My Stats", f"{EMOJIS['achievement']} Achievements"],
             [f"{EMOJIS['diamond']} Set UPI", f"{EMOJIS['feedback']} Send Feedback"],
+            [f"{EMOJIS['notify']} Notifications"],
             ["❓ Help & Guide"]
         ]
 
@@ -697,6 +698,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         user_id = get_user_id(update)
         if is_rate_limited(user_id):
+            await show_error_animation(update, context, SPAM_WARN_MESSAGE)
             return
 
         text = update.message.text
@@ -711,6 +713,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"{EMOJIS['achievement']} Achievements": show_achievements,
             f"{EMOJIS['feedback']} Send Feedback": feedback_start,
             f"{EMOJIS['diamond']} Set UPI": link_upi_start,
+            f"{EMOJIS['notify']} Notifications": notifications_menu,
             "📊 My Stats": show_user_stats,
             f"{EMOJIS['convert']} Coin Convert": coin_convert_start,
             "❓ Help & Guide": help_command,
@@ -1537,6 +1540,7 @@ async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE, force_n
         )
 
 async def verify_membership_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Checks if a user has joined a specific channel and grants a reward."""
     try:
         query = update.callback_query
         await query.answer("🔍 Verifying membership...")
@@ -1579,7 +1583,8 @@ async def verify_membership_callback(update: Update, context: ContextTypes.DEFAU
             return
 
         try:
-            if task.get('is_private', False):
+            is_private = task.get('is_private', False)
+            if is_private:
                 channel_id = task.get('channel_id')
                 if not channel_id:
                     error_text = "Cannot verify this private channel. Missing channel ID."
@@ -1587,61 +1592,34 @@ async def verify_membership_callback(update: Update, context: ContextTypes.DEFAU
                     return
                     
                 member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
-                
-                if member.status in ['member', 'administrator', 'creator']:
-                    reward = task['reward']
-                    user['coin_balance'] = user.get('coin_balance', 0) + reward
-                    user.setdefault('completed_tasks', []).append(task_id)
-                    
-                    success_msg = (
-                        f"✅ Membership verified!\n"
-                        f"🪙 Earned: *{reward} Coins*\n"
-                        f"💰 New Coin Balance: *{user['coin_balance']} Coins*\n\n"
-                        f"🚀 Keep completing tasks to earn more!"
-                    )
-                    
-                    await show_success_animation(update, context, success_msg, loading_msg.message_id if loading_msg else None)
-                    await check_and_grant_achievements(user_id, context)
-                else:
-                    not_member_msg = (
-                        f"❌ *Membership Not Found!*\n\n"
-                        f"Please make sure you:\n"
-                        f"1️⃣ Clicked 'Join Channel'\n"
-                        f"2️⃣ Actually joined the channel\n"
-                        f"3️⃣ Didn't immediately leave\n\n"
-                        f"💡 Try joining again, then click verify!"
-                    )
-                    
-                    await show_error_animation(update, context, not_member_msg, loading_msg.message_id if loading_msg else None)
-                    
             else:
                 member = await context.bot.get_chat_member(chat_id=channel_identifier, user_id=user_id)
+            
+            if member.status in ['member', 'administrator', 'creator']:
+                reward = task['reward']
+                user['coin_balance'] = user.get('coin_balance', 0) + reward
+                user.setdefault('completed_tasks', []).append(task_id)
                 
-                if member.status in ['member', 'administrator', 'creator']:
-                    reward = task['reward']
-                    user['coin_balance'] = user.get('coin_balance', 0) + reward
-                    user.setdefault('completed_tasks', []).append(task_id)
-                    
-                    success_msg = (
-                        f"✅ Membership verified!\n"
-                        f"🪙 Earned: *{reward} Coins*\n"
-                        f"💰 New Coin Balance: *{user['coin_balance']} Coins*\n\n"
-                        f"🚀 Keep completing tasks to earn more!"
-                    )
-                    
-                    await show_success_animation(update, context, success_msg, loading_msg.message_id if loading_msg else None)
-                    await check_and_grant_achievements(user_id, context)
-                else:
-                    not_member_msg = (
-                        f"❌ *Membership Not Found!*\n\n"
-                        f"Please make sure you:\n"
-                        f"1️⃣ Clicked 'Join Channel'\n"
-                        f"2️⃣ Actually joined the channel\n"
-                        f"3️⃣ Didn't immediately leave\n\n"
-                        f"💡 Try joining again, then click verify!"
-                    )
-                    
-                    await show_error_animation(update, context, not_member_msg, loading_msg.message_id if loading_msg else None)
+                success_msg = (
+                    f"✅ Membership verified!\n"
+                    f"🪙 Earned: *{reward} Coins*\n"
+                    f"💰 New Coin Balance: *{user['coin_balance']} Coins*\n\n"
+                    f"🚀 Keep completing tasks to earn more!"
+                )
+                
+                await show_success_animation(update, context, success_msg, loading_msg.message_id if loading_msg else None)
+                await check_and_grant_achievements(user_id, context)
+            else:
+                not_member_msg = (
+                    f"❌ *Membership Not Found!*\n\n"
+                    f"Please make sure you:\n"
+                    f"1️⃣ Clicked 'Join Channel'\n"
+                    f"2️⃣ Actually joined the channel\n"
+                    f"3️⃣ Didn't immediately leave\n\n"
+                    f"💡 Try joining again, then click verify!"
+                )
+                
+                await show_error_animation(update, context, not_member_msg, loading_msg.message_id if loading_msg else None)
 
         except BadRequest as e:
             error_msg = e.message.lower()
@@ -1715,9 +1693,18 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 "To set your UPI, please use the main menu button or type /linkupi",
                 parse_mode=ParseMode.MARKDOWN
             )
+        
+        elif data == "toggle_notifications":
+            await toggle_notifications_callback(update, context)
+        
+        elif data.startswith('lb_'):
+            await leaderboard_callback(update, context)
 
     except Exception as e:
         logger.error(f"Error in handle_callback_query: {e}")
+        # Send a generic error message to the user if the query fails
+        await show_error_animation(update, context, "An error occurred with this action. Please try again from the menu.")
+
 
 # --- NEW GAMIFICATION: LEADERBOARD ---
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2610,9 +2597,9 @@ async def airdrop_receive_cash(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def airdrop_receive_coins(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receives coin amount and executes the airdrop."""
-    try:
-        loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_airdrop'])
+    loading_msg = await show_stylish_loading_animation(update, context, LOADING_TITLES['admin_airdrop'])
 
+    try:
         coin_amount_str = update.message.text.strip()
         coin_amount = int(coin_amount_str)
         cash_amount = context.user_data.get('airdrop_cash', 0.0)
@@ -3843,6 +3830,7 @@ async def post_init(application: Application) -> None:
             BotCommand("leaderboard", f"{EMOJIS['leaderboard']} View Leaderboard"),
             BotCommand("achievements", f"{EMOJIS['achievement']} My Achievements"),
             BotCommand("feedback", f"{EMOJIS['feedback']} Send Feedback"),
+            BotCommand("notifications", "🔔 Manage Notifications")
         ]
         await application.bot.set_my_commands(user_commands)
 
@@ -4048,6 +4036,7 @@ def main() -> None:
             CallbackQueryHandler(export_withdrawals_callback, pattern='^export_withdrawals$'),
             CallbackQueryHandler(handle_callback_query),
             
+            # Message Handlers
             MessageHandler(filters.Regex(f'^{EMOJIS["notify"]} Notifications$'), notifications_menu),
             MessageHandler(
                 filters.TEXT & (
@@ -4099,3 +4088,4 @@ def main() -> None:
 if __name__ == '__main__':
     keep_alive()
     main()
+
