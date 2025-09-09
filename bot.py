@@ -15,7 +15,7 @@ from typing import Dict, Any, Tuple
 
 # --- CONFIGURATION ---
 # IMPORTANT: Replace these with your actual bot token and admin ID
-BOT_TOKEN = "8337818595:AAHuG_ayuypWmLjYNj8ALZwKJ_14uF_4GZg"
+BOT_TOKEN = "8310636090:AAFcFbpeCH-fqm0pNzAi7Ng1hWDw7wF72Xs"
 ADMIN_ID = 7258860451
 MIN_WITHDRAWAL = 1000.0
 MIN_REWARD = 0.1
